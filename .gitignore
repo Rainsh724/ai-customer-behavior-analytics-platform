@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Environment
+venv/
+.env
+
+# VSCode
+.vscode/
+
+# PyCharm
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Dataset
+Dataset/Clean/
+
+# macOS
+.DS_Store
+
+# Datasets
+Dataset/
+
+# Data files
+*.csv
+*.xlsx
+*.xls
