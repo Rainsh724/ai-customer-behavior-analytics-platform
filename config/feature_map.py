@@ -2,7 +2,6 @@
 # ==========================
 Feature Map
 # ==========================
-
 این فایل تنها مرجع معرفی ساختار دیتاست‌ها در کل پروژه است.
 
 تمام بخش‌های پروژه از این فایل استفاده می‌کنند:
@@ -68,11 +67,7 @@ FEATURE_MAP = {
 
         "numeric_columns": [],
 
-        "categorical_columns": [],
-
-        "raw_text_columns": [
-            "comment"
-        ]
+        "categorical_columns": []
     },
 
     # ==========================
@@ -136,13 +131,6 @@ FEATURE_MAP = {
         "categorical_columns": [
             "verification_status",
             "recommend"
-        ],
-
-        "raw_text_columns": [
-            "title",
-            "comment",
-            "advantages",
-            "disadvantages"
         ]
     },
 
@@ -187,18 +175,14 @@ FEATURE_MAP = {
             "Quantity_item"
         ],
 
-        "categorical_columns": [],
-
-        "raw_text_columns": [
-            "comment"
-        ]
+        "categorical_columns": []
     },
 
     # ==========================
     # Purchase History
     # ==========================
 
-    "purchase_history": {
+    "tarikhche kharid": {
 
         "file_name": "tarikhche kharid.csv",
 
@@ -245,10 +229,6 @@ FEATURE_MAP = {
         "categorical_columns": [
             "active",
             "show_in_price_history"
-        ],
-
-        "raw_text_columns": [
-            "comment"
         ]
     },
 
@@ -256,7 +236,7 @@ FEATURE_MAP = {
     # Products
     # ==========================
 
-    "products": {
+    "product": {
 
         "file_name": "product.xlsx",
 
@@ -308,12 +288,7 @@ FEATURE_MAP = {
 
         "numeric_columns": [],
 
-        "categorical_columns": [],
-         
-        "raw_text_columns": [
-            "product_description_fa",
-            "product_description_en"
-        ]
+        "categorical_columns": []
     }
 
 }
