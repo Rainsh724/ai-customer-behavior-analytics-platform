@@ -2,18 +2,17 @@ import sys
 from pathlib import Path
 import pandas as pd
 
-# ۱. حل مشکل آدرس‌دهی: معرفی روت پروژه به پایتون تا ارور ModuleNotFoundError ندهد
+
 project_root = Path(__file__).resolve().parent
 sys.path.append(str(project_root))
 
-# ۲. وارد کردن کلاس تمیزکاری تو و ابزارهای فیچرمپ
 from src.structured_cleaner import EcomDataCleaner
 from config.feature_map import get_dataset
 
 def test_with_real_data():
     cleaner = EcomDataCleaner()
     
-    # مسیر پوشه دیتای واقعی و پوشه خروجی تمیزشده
+ 
     input_dir = Path("test_sandbox")
     output_dir = Path("test_sandbox/cleaned_output")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -25,7 +24,7 @@ def test_with_real_data():
         return
 
     for file_path in input_dir.glob("*.*"):
-        dataset_name = file_path.stem # نام فایل بدون پسوند (مثلاً orders)
+        dataset_name = file_path.stem
         
         # بررسی اینکه آیا در فیچرمپ تعریف شده یا نه
         if not get_dataset(dataset_name):
@@ -46,7 +45,7 @@ def test_with_real_data():
         initial_nulls = raw_df.isnull().sum().sum()
         
         # ==========================================
-        # اجرای موتور پاک‌سازی تو (زینب)
+        # اجرای موتور پاک‌سازی
         # ==========================================
         cleaned_df = cleaner.clean_structured_data(raw_df, dataset_name)
         

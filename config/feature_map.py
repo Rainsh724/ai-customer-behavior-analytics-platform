@@ -1,20 +1,17 @@
 """
 # ==========================
-Feature Map
+Feature Map (Updated & Optimized)
 # ==========================
 این فایل تنها مرجع معرفی ساختار دیتاست‌ها در کل پروژه است.
 
 تمام بخش‌های پروژه از این فایل استفاده می‌کنند:
-
 ✔ Text Preprocessing
 ✔ Sentiment Analysis
 ✔ PostgreSQL
 ✔ pgvector
 ✔ Embedding
 ✔ RAG
-✔ Text-to-SQL
 ✔ BI Dashboard
-✔ Clustering
 ✔ LangGraph Agents
 
 در صورت تغییر دیتاست فقط این فایل بروزرسانی می‌شود.
@@ -24,275 +21,144 @@ Feature Map
 FEATURE_MAP = {
 
     # ==========================
-    # Comment
+    # 1. Comments (Reviews)
     # ==========================
-
-    "comment": {
-
-        "file_name": "comment.xlsx",
-
-        "primary_key": None,
-
+    "digikala-comments": {
+        "file_name": "digikala-comments.csv",
+        "primary_key": "id",
         "foreign_keys": [
             "product_id"
         ],
-
         "join_columns": [
             "product_id"
         ],
-
         "text_columns": [
-            "comment"
+            "title",
+            "body",
+            "advantages",
+            "disadvantages"
         ],
-
         "preprocess_columns": [
-            "comment"
+            "title",
+            "body",
+            "advantages",
+            "disadvantages"
         ],
-
         "embedding_columns": [
-            "comment"
+            "title",
+            "body",
+            "advantages",
+            "disadvantages"
         ],
-
         "rag_columns": [
-            "comment"
+            "body",
+            "advantages",
+            "disadvantages"
         ],
-
         "sentiment_columns": [
-            "comment"
+            "body",
+            "advantages",
+            "disadvantages"
         ],
-
         "datetime_columns": [
-            "confirmed_at"
+            "created_at"
         ],
-
-        "numeric_columns": [],
-
-        "categorical_columns": []
-    },
-
-    # ==========================
-    # Reviews (Quality)
-    # ==========================
-
-    "keifiat": {
-
-        "file_name": "keifiat.xlsx",
-
-        "primary_key": None,
-
-        "foreign_keys": [
-            "product_id",
-            "user_id"
-        ],
-
-        "join_columns": [
-            "product_id",
-            "user_id"
-        ],
-
-        "text_columns": [
-            "title",
-            "comment",
-            "advantages",
-            "disadvantages"
-        ],
-
-        "preprocess_columns": [
-            "title",
-            "comment",
-            "advantages",
-            "disadvantages"
-        ],
-
-        "embedding_columns": [
-            "title",
-            "comment",
-            "advantages",
-            "disadvantages"
-        ],
-
-        "rag_columns": [
-            "comment",
-            "advantages",
-            "disadvantages"
-        ],
-
-        "sentiment_columns": [
-            "comment"
-        ],
-
-        "datetime_columns": [],
-
         "numeric_columns": [
+            "rate",
             "likes",
             "dislikes"
         ],
-
         "categorical_columns": [
-            "verification_status",
-            "recommend"
+            "recommendation_status",
+            "seller_title",
+            "seller_code",
+            "true_to_size_rate"
+        ],
+        "boolean_columns": [
+            "is_buyer"
         ]
     },
 
     # ==========================
-    # Orders
+    # 2. User Behavior Logs
     # ==========================
-
-    "orders": {
-
-        "file_name": "orders.csv",
-
-        "primary_key": "ID_Order",
-
+    "user_behavior_logs": {
+        "file_name": "user_behavior_logs.csv",
+        "primary_key": None,
         "foreign_keys": [
-            "ID_Customer",
-            "ID_Item"
+            "user_id",
+            "product_id"
         ],
-
         "join_columns": [
-            "ID_Customer",
-            "ID_Item"
+            "user_id",
+            "product_id"
         ],
-
-        "text_columns": [
-            "city_name_fa"
-        ],
-
+        "text_columns": [],
         "preprocess_columns": [],
-
         "embedding_columns": [],
-
         "rag_columns": [],
-
         "sentiment_columns": [],
-
         "datetime_columns": [
-            "DateTime_CartFinalize"
+            "timestamp"
         ],
-
-        "numeric_columns": [
-            "Amount_Gross_Order",
-            "Quantity_item"
-        ],
-
-        "categorical_columns": []
-    },
-
-    # ==========================
-    # Purchase History
-    # ==========================
-
-    "tarikhche kharid": {
-
-        "file_name": "tarikhche kharid.csv",
-
-        "primary_key": "id",
-
-        "foreign_keys": [
-            "product_variant_id",
-            "product_id",
-            "marketplace_seller_id"
-        ],
-
-        "join_columns": [
-            "product_variant_id",
-            "product_id",
-            "marketplace_seller_id"
-        ],
-
-        "text_columns": [
-            "tags"
-        ],
-
-        "preprocess_columns": [],
-
-        "embedding_columns": [],
-
-        "rag_columns": [],
-
-        "sentiment_columns": [],
-
-        "datetime_columns": [
-            "created_at",
-            "start_at",
-            "end_at"
-        ],
-
-        "numeric_columns": [
-            "selling_price",
-            "rrp_price",
-            "base_price",
-            "buy_price",
-            "order_limit"
-        ],
-
+        "numeric_columns": [],
         "categorical_columns": [
-            "active",
-            "show_in_price_history"
-        ]
+            "event_type",
+            "city",
+            "session_id"
+        ],
+        "boolean_columns": []
     },
 
     # ==========================
-    # Products
+    # 3. Products
     # ==========================
-
-    "product": {
-
-        "file_name": "product.xlsx",
-
+    "digikala-products": {
+        "file_name": "digikala-products.csv",
         "primary_key": "id",
-
         "foreign_keys": [],
-
         "join_columns": [
             "id"
         ],
-
         "text_columns": [
-            "product_title_fa",
-            "product_title_en",
-            "title_alt",
-            "category_title_fa",
-            "category_keywords",
-            "brand_name_fa",
-            "brand_name_en",
-            "product_attributes"
+            "title_fa"
         ],
-
         "preprocess_columns": [
-            "product_title_fa",
-            "product_title_en",
-            "title_alt",
-            "category_title_fa",
-            "category_keywords",
-            "brand_name_fa",
-            "brand_name_en"
+            "title_fa"
         ],
-
         "embedding_columns": [
-            "product_title_fa",
-            "title_alt",
-            "category_keywords",
-            "product_attributes"
+            "title_fa",
+            "Category1",
+            "Category2",
+            "sub_category",
+            "Brand"
         ],
-
         "rag_columns": [
-            "product_title_fa",
-            "title_alt",
-            "product_attributes"
+            "title_fa",
+            "Category1",
+            "Category2",
+            "sub_category"
         ],
-
         "sentiment_columns": [],
-
         "datetime_columns": [],
-
-        "numeric_columns": [],
-
-        "categorical_columns": []
+        "numeric_columns": [
+            "Rate",
+            "Rate_cnt",
+            "Price",
+            "min_price_last_month"
+        ],
+        "categorical_columns": [
+            "Category1",
+            "Category2",
+            "Brand",
+            "Seller",
+            "sub_category"
+        ],
+        "boolean_columns": [
+            "Is_Fake"
+        ]
     }
-
 }
-
 
 # ==========================
 # Helper Functions
@@ -302,34 +168,33 @@ def get_dataset(name):
     """برگرداندن تنظیمات یک دیتاست"""
     return FEATURE_MAP.get(name, {})
 
-
 def get_text_columns(name):
-    return FEATURE_MAP[name]["text_columns"]
-
+    return FEATURE_MAP[name].get("text_columns", [])
 
 def get_preprocess_columns(name):
-    return FEATURE_MAP[name]["preprocess_columns"]
-
+    return FEATURE_MAP[name].get("preprocess_columns", [])
 
 def get_embedding_columns(name):
-    return FEATURE_MAP[name]["embedding_columns"]
-
+    return FEATURE_MAP[name].get("embedding_columns", [])
 
 def get_rag_columns(name):
-    return FEATURE_MAP[name]["rag_columns"]
-
+    return FEATURE_MAP[name].get("rag_columns", [])
 
 def get_sentiment_columns(name):
-    return FEATURE_MAP[name]["sentiment_columns"]
-
+    return FEATURE_MAP[name].get("sentiment_columns", [])
 
 def get_datetime_columns(name):
-    return FEATURE_MAP[name]["datetime_columns"]
-
+    return FEATURE_MAP[name].get("datetime_columns", [])
 
 def get_numeric_columns(name):
-    return FEATURE_MAP[name]["numeric_columns"]
-
+    return FEATURE_MAP[name].get("numeric_columns", [])
 
 def get_join_columns(name):
-    return FEATURE_MAP[name]["join_columns"]
+    return FEATURE_MAP[name].get("join_columns", [])
+
+def get_categorical_columns(name):
+    return FEATURE_MAP[name].get("categorical_columns", [])
+
+def get_boolean_columns(name):
+    """برگرداندن ستون‌های بولین (True/False) - ایده اضافه شده"""
+    return FEATURE_MAP[name].get("boolean_columns", [])
