@@ -17,6 +17,11 @@ Feature Map (Updated & Optimized)
 در صورت تغییر دیتاست فقط این فایل بروزرسانی می‌شود.
 =============================================================
 """
+import os
+
+BASE_DIR = os.path.join("Dataset")
+CLEANED_DIR = os.path.join(BASE_DIR, "Cleaned_output")
+OUTPUT_DIR = os.path.join(BASE_DIR, "Feature_KPI_output")
 
 FEATURE_MAP = {
 
@@ -25,6 +30,8 @@ FEATURE_MAP = {
     # ==========================
     "digikala-comments": {
         "file_name": "digikala-comments.csv",
+        "cleaned_folder_name": "digikala-comments_parts",
+        "table_alias": "comments",
         "primary_key": "id",
         "foreign_keys": [
             "product_id"
@@ -84,6 +91,8 @@ FEATURE_MAP = {
     # ==========================
     "user_behavior_logs": {
         "file_name": "user_behavior_logs.csv",
+        "cleaned_folder_name": "user_behavior_logs_parts",
+        "table_alias": "user_behavior",
         "primary_key": None,
         "foreign_keys": [
             "user_id",
@@ -115,6 +124,8 @@ FEATURE_MAP = {
     # ==========================
     "digikala-products": {
         "file_name": "digikala-products.csv",
+        "cleaned_folder_name": "digikala-products_parts",
+        "table_alias": "products",
         "primary_key": "id",
         "foreign_keys": [],
         "join_columns": [
@@ -198,3 +209,10 @@ def get_categorical_columns(name):
 def get_boolean_columns(name):
     """برگرداندن ستون‌های بولین (True/False) - ایده اضافه شده"""
     return FEATURE_MAP[name].get("boolean_columns", [])
+
+def get_cleaned_folder_path(name):
+    cfg = FEATURE_MAP.get(name, {})
+    folder = cfg.get("cleaned_folder_name")
+    if not folder:
+        return None
+    return os.path.join(CLEANED_DIR, folder)
