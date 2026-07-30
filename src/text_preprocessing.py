@@ -85,15 +85,15 @@ class TextPreprocessing:
         return normalized
 
 
-    # @staticmethod
-    def fast_tokenize(self, text):
-        return text.split()
+    # # @staticmethod
+    # def fast_tokenize(self, text):
+    #     return text.split()
 
-    # @staticmethod
-    def Tokenize(self, input_text):
-        if isinstance(input_text, pd.Series):
-            return input_text.apply(self.fast_tokenize)
-        return self.fast_tokenize(str(input_text))
+    # # @staticmethod
+    # def Tokenize(self, input_text):
+    #     if isinstance(input_text, pd.Series):
+    #         return input_text.apply(self.fast_tokenize)
+    #     return self.fast_tokenize(str(input_text))
 
     ## @staticmethod
     # def Export(self, df, output_path):

@@ -18,9 +18,9 @@ def process_chunk(args):
 
     chunk["raw_text"] = text_pre.create_raw_text(chunk, columns)
     chunk["raw_text_normalized"] = text_pre.Normalize_text(chunk["raw_text"])
-    chunk["tokens"] = text_pre.Tokenize(chunk["raw_text_normalized"])
+    # chunk["tokens"] = text_pre.Tokenize(chunk["raw_text_normalized"])
 
-    chunk["tokens"] = chunk["tokens"].apply(lambda t: " ".join(t) if isinstance(t, list) else t)
+    # chunk["tokens"] = chunk["tokens"].apply(lambda t: " ".join(t) if isinstance(t, list) else t)
     chunk.to_parquet(part_path, index=False, engine="pyarrow")
 
     return part_path, len(chunk)
