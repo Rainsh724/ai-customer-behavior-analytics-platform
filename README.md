@@ -1,5 +1,2 @@
-# ai-customer-behavior-analytics-platform
-
-///
-..
-Am I innnnn??
+⌛ Coming soon...
+🔥 Success is loading...
