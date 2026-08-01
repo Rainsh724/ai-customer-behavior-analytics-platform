@@ -55,7 +55,6 @@ class FeatureEngineer:
         return df
 
     def _aggregate_comments_from_folder(self, folder_path: str) -> pd.DataFrame:
-        """کامنت‌ها را فایل‌به‌فایل aggregate می‌کند — کل جدول را در RAM نگه نمی‌دارد."""
         parquet_files = sorted(glob.glob(os.path.join(folder_path, "*.parquet")))
         if not parquet_files:
             raise FileNotFoundError(f"No parquet files found in: {folder_path}")
