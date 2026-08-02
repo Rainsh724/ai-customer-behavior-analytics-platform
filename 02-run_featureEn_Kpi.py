@@ -11,8 +11,8 @@ import os
 import pandas as pd
 
 from config.feature_map import FEATURE_MAP, OUTPUT_DIR
-from feature_engineer import FeatureEngineer
-from kpi import KPIEngine
+from src.feature_engineer import FeatureEngineer
+from src.kpi import KPIEngine
 
 
 def build_feature_table(tables):
