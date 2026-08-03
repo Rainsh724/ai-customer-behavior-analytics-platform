@@ -55,6 +55,7 @@ class FeatureEngineer:
         return df
 
     def _aggregate_comments_from_folder(self, folder_path: str) -> pd.DataFrame:
+        """کامنت‌ها را فایل‌به‌فایل aggregate می‌کند — کل جدول را در RAM نگه نمی‌دارد."""
         parquet_files = sorted(glob.glob(os.path.join(folder_path, "*.parquet")))
         if not parquet_files:
             raise FileNotFoundError(f"No parquet files found in: {folder_path}")
@@ -190,21 +191,36 @@ class FeatureEngineer:
         df["is_view"] = (df["event_type"] == "view").astype("int8")
         df["is_cart"] = (df["event_type"] == "add_to_cart").astype("int8")
         df["is_purchase"] = (df["event_type"] == "purchase").astype("int8")
+        df["is_remove"] = (df["event_type"] == "remove_from_cart").astype("int8")
 
         user_agg = df.groupby("user_id", observed=True).agg({
             "is_view": "sum",
             "is_cart": "sum",
+            "is_remove": "sum",
             "is_purchase": "sum",
         }).reset_index()
         user_agg["conversion_rate"] = user_agg["is_purchase"] / (user_agg["is_view"] + 1)
+        user_agg["remove_rate"] = user_agg["is_remove"] / (user_agg["is_cart"] + 1)
 
         product_agg = df.groupby("product_id", observed=True).agg({
             "is_view": "sum",
             "is_cart": "sum",
+             "is_remove": "sum",
             "is_purchase": "sum",
         }).reset_index()
         product_agg["conversion_rate"] = product_agg["is_purchase"] / (product_agg["is_view"] + 1)
-        product_agg["drop_off_rate"] = 1 - product_agg["conversion_rate"]
+        product_agg["drop_off_rate"] =(
+        (product_agg["is_view"] - product_agg["is_purchase"]) / (product_agg["is_view"] + 1)
+)
+        product_agg["remove_rate"] = product_agg["is_remove"] / (product_agg["is_cart"] + 1)
+
+        product_agg["cart_abandon_rate"] = (
+        (product_agg["is_cart"] - product_agg["is_purchase"]) / (product_agg["is_cart"] + 1)
+)
+
+        product_agg["remove_to_cart_ratio"] = (
+        product_agg["is_remove"] / (product_agg["is_cart"] + 1)
+)
 
         city_agg = df.groupby("city", observed=True).agg({
             "is_view": "sum",

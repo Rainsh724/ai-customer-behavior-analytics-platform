@@ -18,7 +18,10 @@ class KPIEngine:
             return
 
         df = self.tables["product_master"].copy()
+        
+        print(df.columns) 
         kpis = {}
+
 
         if "is_purchase" in df.columns:
             kpis["top_products"] = df.sort_values(
@@ -40,6 +43,21 @@ class KPIEngine:
                 "revenue", ascending=False
             ).head(10)
 
+        if "is_remove" in df.columns:
+            kpis["most_removed_products"] = df.sort_values(
+                "is_remove", ascending=False
+            ).head(10)
+
+        if "cart_abandon_rate" in df.columns:
+            kpis["worst_cart_products"] = df.sort_values(
+                "cart_abandon_rate", ascending=False
+            ).head(10)
+
+        if "remove_rate" in df.columns:
+            kpis["high_remove_rate_products"] = df.sort_values(
+                "remove_rate", ascending=False
+            ).head(10)
+
         self.kpis["product"] = kpis
 
     # =========================
@@ -54,11 +72,15 @@ class KPIEngine:
         total_view = (df["event_type"] == "view").sum()
         total_cart = (df["event_type"] == "add_to_cart").sum()
         total_purchase = (df["event_type"] == "purchase").sum()
+        total_remove = (df["event_type"] == "remove_from_cart").sum()
 
         self.kpis["funnel"] = {
             "view_to_cart_rate": total_cart / total_view if total_view else 0,
             "cart_to_purchase_rate": total_purchase / total_cart if total_cart else 0,
             "overall_conversion": total_purchase / total_view if total_view else 0,
+            "cart_abandon_rate": (total_cart - total_purchase) / total_cart if total_cart else 0,
+            "remove_rate": total_remove / total_cart if total_cart else 0,
+            "remove_to_purchase_ratio": total_remove / (total_purchase + 1),
         }
 
     # =========================
@@ -82,6 +104,8 @@ class KPIEngine:
             kpis["high_conversion_users"] = df.sort_values(
                 "conversion_rate", ascending=False
             ).head(10)
+        if "remove_rate" in df.columns:
+            kpis["high_remove_users"] = df[df["remove_rate"] > 0.5]
 
         self.kpis["user_segment"] = kpis
 

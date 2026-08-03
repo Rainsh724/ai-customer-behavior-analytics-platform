@@ -69,8 +69,27 @@ def main():
     fe = FeatureEngineer(FEATURE_MAP)
     tables = fe.run(save=True)
 
+    print("/////////////////////////////////////////////////////")
+    print("\nPRODUCT MASTER COLUMNS:")
+    print(tables["product_master"].columns.tolist())
+    print("/////////////////////////////////////////////////////")
+
+
     # 2. Build feature table
     feature_table = build_feature_table(tables)
+
+    # اینجا رو اضافه کردم پرینت فیچر ها رو ببینم 
+    print("..........................................................................")
+    print("\n" + "="*50)
+    print("ALL FEATURES (COLUMNS)")
+    print("="*50)
+
+    for col in feature_table.columns:
+        print(col)
+
+    print("\nTotal Features:", len(feature_table.columns))
+    print("..........................................................................")
+    #......................................................................
 
     if feature_table is not None:
         print("\n=== FEATURE TABLE ===")
@@ -86,6 +105,33 @@ def main():
     kpi_engine = KPIEngine(tables)
     kpis = kpi_engine.run()
 
+
+    # اینجا رو هم برای دیدن kpi ها 
+    print("..........................................................................")
+    print("\n" + "="*50)
+    print("ALL KPIs")
+    print("="*50)
+
+    for kpi_name, kpi_value in kpis.items():
+        print(f"\n--- KPI: {kpi_name} ---")
+
+        if isinstance(kpi_value, pd.DataFrame):
+            print("Columns:")
+            print(kpi_value.columns.tolist())
+            print("Shape:", kpi_value.shape)
+            print("Sample:")
+            print(kpi_value.head(3))
+
+        elif isinstance(kpi_value, dict):
+            print("Dict KPI:")
+            for k, v in kpi_value.items():
+                print(f"{k}: {v}")
+
+        else:
+            print(kpi_value)
+    print("..........................................................................")
+    #................................................................
+    
     print("\n" + "=" * 60)
     print("DONE")
     print("=" * 60)
