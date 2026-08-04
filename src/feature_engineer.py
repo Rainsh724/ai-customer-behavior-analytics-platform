@@ -237,7 +237,67 @@ class FeatureEngineer:
         print(f"  city_features: {city_agg.shape}")
         print(f"  user_behavior_enriched: {df.shape}")
         gc.collect()
-
+    # =========================================
+    # ADVANCED USER FEATURES (RFM, Sessions & Profile)
+    # =========================================
+    def advanced_user_features(self):
+        if "user_behavior_enriched" not in self.tables or "products" not in self.tables:
+            print("[WARN] Required tables missing for advanced_user_features - skip")
+            return
+            
+        print("=== BUILDING ADVANCED USER FEATURES ===")
+        df_bh = self.tables["user_behavior_enriched"]
+        df_pr = self.tables["products"]
+        
+        # ۱. ویژگی‌های سطح نشست (Session Dynamics)
+        # محاسبه عمق هر نشست و سپس میانگین آن برای هر کاربر
+        session_agg = df_bh.groupby('session_id', observed=True).agg(
+            session_depth=('event_type', 'count'),
+            user_id=('user_id', 'first')
+        ).reset_index()
+        
+        user_session = session_agg.groupby('user_id').agg(
+            total_sessions=('session_id', 'nunique'),
+            avg_session_depth=('session_depth', 'mean')
+        ).reset_index()
+        
+        # ۲. ویژگی‌های ترجیحاتی (Time Preference)
+        # محاسبه نسبت فعالیت در روزهای آخر هفته
+        time_pref = df_bh.groupby('user_id', observed=True).agg(
+            weekend_activity_ratio=('is_weekend', 'mean')
+        ).reset_index()
+        
+        # ۳. ویژگی‌های ارزش مشتری (RFM & Diversity)
+        # ادغام لاگ خریدها با مشخصات کالاها برای استخراج قیمت و برند
+        df_purchases = df_bh[df_bh['is_purchase'] == 1].merge(
+            df_pr[['id', 'Price', 'Brand', 'Category1']], 
+            left_on='product_id', right_on='id', how='inner'
+        )
+        
+        if not df_purchases.empty:
+            rfm_agg = df_purchases.groupby('user_id').agg(
+                total_spend=('Price', 'sum'),            # مجموع ارزش خرید
+                aov=('Price', 'mean'),                   # میانگین ارزش سبد خرید
+                brand_diversity=('Brand', 'nunique'),    # تنوع برند
+                category_diversity=('Category1', 'nunique') # تنوع دسته‌بندی
+            ).reset_index()
+        else:
+            rfm_agg = pd.DataFrame(columns=['user_id', 'total_spend', 'aov', 'brand_diversity', 'category_diversity'])
+            
+        # ۴. چسباندن فیچرهای جدید به جدول اصلی user_features
+        user_features = self.tables["user_features"]
+        user_features = user_features.merge(user_session, on='user_id', how='left')
+        user_features = user_features.merge(time_pref, on='user_id', how='left')
+        user_features = user_features.merge(rfm_agg, on='user_id', how='left')
+        
+        # پر کردن مقادیر خالی (کاربرانی که خریدی نداشته‌اند) با صفر
+        cols_to_fillna = ['total_spend', 'aov', 'brand_diversity', 'category_diversity']
+        user_features[cols_to_fillna] = user_features[cols_to_fillna].fillna(0)
+        
+        self.tables["user_features"] = user_features
+        print(f"  advanced user_features shape: {user_features.shape}")
+        import gc
+        gc.collect()
     # =========================
     # COMMENT FEATURES
     # =========================
@@ -274,9 +334,27 @@ class FeatureEngineer:
                 how="left",
                 suffixes=("", "_comment"),
             )
+            
+        # --- کدهای جدید اضافه شده برای ویژگی‌های پیشرفته محصول ---
+        
+        # ۱. نرخ درگیری نظرات (Review Engagement Rate)
+        if 'comment_count' in products.columns and 'is_view' in products.columns:
+            products['review_engagement_rate'] = products['comment_count'] / (products['is_view'] + 1e-5)
+            products['review_engagement_rate'] = products['review_engagement_rate'].fillna(0)
+
+        # ۲. حساسیت قیمتی و افت قیمت (Price Drop Ratio)
+        price_col = 'Price' if 'Price' in products.columns else 'price'
+        if price_col in products.columns and 'min_price_last_month' in products.columns:
+            # فرمول: چقدر قیمت فعلی نسبت به کمترین قیمت ماه گذشته افت داشته است
+            products['price_drop_ratio'] = (products['min_price_last_month'] - products[price_col]) / (products[price_col] + 1e-5)
+            # مقادیر منفی (افزایش قیمت) را روی صفر تنظیم می‌کنیم تا فقط افت قیمت‌ها بماند
+            products['price_drop_ratio'] = products['price_drop_ratio'].clip(lower=0)
+
+        # --------------------------------------------------
 
         self.tables["product_master"] = products
         print(f"  product_master: {products.shape}")
+        import gc
         gc.collect()
 
     # =========================
@@ -310,6 +388,7 @@ class FeatureEngineer:
     def run(self, save=True):
         self.load_data()
         self.user_behavior_features()
+        self.advanced_user_features()
         self.comment_features()
         self.build_product_master()
         if save:
