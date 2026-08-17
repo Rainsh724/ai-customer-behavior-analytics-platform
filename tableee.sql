@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS brands (
 
 CREATE TABLE IF NOT EXISTS categories (
     category_id BIGSERIAL PRIMARY KEY,
-    category2 VARCHAR(255) NOT NULL,
+    category2 VARCHAR(255) ,
     category1 VARCHAR(255) NOT NULL,
     sub_category VARCHAR(255),
 
@@ -56,7 +56,6 @@ CREATE TABLE IF NOT EXISTS products (
     is_fake BOOLEAN DEFAULT FALSE,
     rate DOUBLE PRECISION,
     rate_cnt BIGINT,
-    raw_text TEXT,
     raw_text_normalized TEXT
 );
  
@@ -79,7 +78,7 @@ CREATE TABLE IF NOT EXISTS comments (
     product_id BIGINT REFERENCES products(id),
     
 
-
+    
     is_buyer BOOLEAN,
     
     body TEXT,
@@ -91,7 +90,6 @@ CREATE TABLE IF NOT EXISTS comments (
     disadvantages JSONB,                                
     true_to_size_rate VARCHAR(20),                     
     predicted_sentiment VARCHAR(50),
-    raw_text TEXT,
     raw_text_normalized TEXT,
     created_at TIMESTAMPTZ                                   
 );
