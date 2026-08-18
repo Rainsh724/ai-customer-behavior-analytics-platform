@@ -17,7 +17,7 @@ class ProjectConfig:
 
     PRODUCTS_DIR = DATASET_DIR / "digikala-products_parts"
     LOGS_DIR = DATASET_DIR / "user_behavior_logs_parts"
-    COMMENTS_DIR = DATASET_DIR / "comment_json"
+    COMMENTS_DIR = DATASET_DIR / "absa_results_comments"
 
     # PostgreSQL Connection Settings
     DB_NAME = os.getenv("DB_NAME", "ai_project")
@@ -27,7 +27,7 @@ class ProjectConfig:
     DB_PORT = os.getenv("DB_PORT", "5432")
 
     # DuckDB High-Performance Memory Limits
-    DUCKDB_MEMORY_LIMIT = "4GB"
+    DUCKDB_MEMORY_LIMIT = "6GB"
     DUCKDB_THREADS = 4
 
     @classmethod
@@ -158,7 +158,7 @@ class DuckDBETLLoader:
                     TRIM(CAST(Category2 AS VARCHAR)) AS category2,
                     NULLIF(TRIM(CAST(sub_category AS VARCHAR)), '') AS sub_category
                 FROM read_parquet('{path}', union_by_name=true)
-                WHERE Category1 IS NOT NULL AND Category2 IS NOT NULL
+                WHERE Category1 IS NOT NULL 
             )
             ON CONFLICT (category1, category2, sub_category) DO NOTHING;
         """
@@ -207,7 +207,8 @@ class DuckDBETLLoader:
         query = f"""
             INSERT INTO pg.products (
                 id, title_fa, brand_id, category_id, seller_id,
-                price, min_price_last_month, is_fake, rate, rate_cnt, raw_text_normalized
+                price, min_price_last_month, is_fake, rate, rate_cnt
+                
             )
             SELECT DISTINCT
                 CAST(src.id AS BIGINT),
@@ -219,8 +220,8 @@ class DuckDBETLLoader:
                 CAST(src.min_price_last_month AS BIGINT),
                 COALESCE(CAST(src.Is_Fake AS BOOLEAN), FALSE),
                 CAST(src.Rate AS DOUBLE PRECISION),
-                CAST(src.Rate_cnt AS BIGINT),
-                CAST(src.raw_text_normalized AS TEXT)
+                CAST(src.Rate_cnt AS BIGINT)
+
             FROM read_parquet('{path}', union_by_name=true) AS src
             LEFT JOIN pg.brands AS b ON b.name = TRIM(CAST(src.Brand AS VARCHAR))
             LEFT JOIN pg.categories AS c 
@@ -238,8 +239,7 @@ class DuckDBETLLoader:
                 min_price_last_month = EXCLUDED.min_price_last_month,
                 is_fake = EXCLUDED.is_fake,
                 rate = EXCLUDED.rate,
-                rate_cnt = EXCLUDED.rate_cnt,
-                raw_text_normalized = EXCLUDED.raw_text_normalized;
+                rate_cnt = EXCLUDED.rate_cnt;
         """
         self._execute_etl_step("products", query)
 
@@ -279,35 +279,15 @@ class DuckDBETLLoader:
     def load_comments(self):
         path = self._get_glob_path(ProjectConfig.COMMENTS_DIR)
 
-        # --------------------------------------------------------
-        # 1. حذف رکوردهای قبلی comments
-        # --------------------------------------------------------
-        logging.info("در حال پاک کردن داده‌های قبلی comments...")
-
-        try:
-            self.con.sql("DELETE FROM pg.comments;")
-            logging.info("داده‌های قبلی comments پاک شدند.")
-        except Exception as e:
-            logging.error(f"خطا در پاک کردن comments قبلی: {e}")
-            raise
-
-        # --------------------------------------------------------
-        # 2. Insert مجدد تمام comments
-        # --------------------------------------------------------
         query = f"""
             INSERT INTO pg.comments (
                 id,
                 product_id,
                 is_buyer,
-                body,
                 rate,
                 recommendation_status,
                 likes,
                 dislikes,
-                advantages,
-                disadvantages,
-                true_to_size_rate,
-                predicted_sentiment,
                 raw_text_normalized,
                 created_at
             )
@@ -318,8 +298,6 @@ class DuckDBETLLoader:
                 CAST(src.product_id AS BIGINT),
 
                 CAST(src.is_buyer AS BOOLEAN),
-
-                CAST(src.body AS TEXT),
 
                 CAST(src.rate AS DOUBLE PRECISION),
 
@@ -335,16 +313,7 @@ class DuckDBETLLoader:
                     0
                 ),
 
-                
-                CAST(src.advantages AS JSON),
-                CAST(src.disadvantages AS JSON),
-
-                CAST(src.true_to_size_rate AS VARCHAR),
-
-                CAST(src.predicted_sentiment AS VARCHAR),
-
-
-                CAST(src.raw_text_normalized AS TEXT),
+                CAST(src.body AS TEXT),
 
                 CAST(src.created_at AS TIMESTAMPTZ)
 
@@ -359,11 +328,71 @@ class DuckDBETLLoader:
             WHERE
                 src.id IS NOT NULL
                 AND src.product_id IS NOT NULL
+
+            ON CONFLICT (id) DO UPDATE SET
+                product_id = EXCLUDED.product_id,
+                is_buyer = EXCLUDED.is_buyer,
+                rate = EXCLUDED.rate,
+                recommendation_status = EXCLUDED.recommendation_status,
+                likes = EXCLUDED.likes,
+                dislikes = EXCLUDED.dislikes,
+                raw_text_normalized = EXCLUDED.raw_text_normalized,
+                created_at = EXCLUDED.created_at;
         """
 
-        
-
         self._execute_etl_step("comments", query)
+
+    def load_comment_aspects(self):
+        path = self._get_glob_path(ProjectConfig.COMMENTS_DIR)
+
+        query = f"""
+            INSERT INTO pg.comment_aspects (
+                comment_id,
+                term,
+                sentiment,
+                negative_pct,
+                neutral_pct,
+                positive_pct
+            )
+
+            SELECT DISTINCT
+                CAST(src.comment_id AS BIGINT) AS comment_id,
+
+                NULLIF(
+                    TRIM(CAST(src.term AS VARCHAR)),
+                    ''
+                ) AS term,
+
+                NULLIF(
+                    TRIM(CAST(src.sentiment AS VARCHAR)),
+                    ''
+                ) AS sentiment,
+
+                CAST(src.negative_pct AS DOUBLE PRECISION)
+                    AS negative_pct,
+
+                CAST(src.neutral_pct AS DOUBLE PRECISION)
+                    AS neutral_pct,
+
+                CAST(src.positive_pct AS DOUBLE PRECISION)
+                    AS positive_pct
+
+            FROM read_parquet(
+                '{path}',
+                union_by_name=true
+            ) AS src
+
+            INNER JOIN pg.comments AS c
+                ON c.id = CAST(src.comment_id AS BIGINT)
+
+            WHERE
+                src.comment_id IS NOT NULL
+
+            ON CONFLICT DO NOTHING;
+        """
+
+        self._execute_etl_step("comment_aspects", query)
+        
 
     def sync_sequences(self):
         """همگام‌سازی sequenceهای PostgreSQL پس از درج دستی آی‌دی‌ها"""
@@ -401,11 +430,12 @@ class DuckDBETLLoader:
             self.load_categories()
             self.load_sellers()
             self.load_sessions()
-
+                        
             # ۲. بارگذاری جداول اصلی (Fact & Core Entities)
             self.load_products()
             self.load_user_behavior_logs()
             self.load_comments()
+            self.load_comment_aspects()
 
             # ۳. همگام‌سازی توالی‌ها در دیتابیس
             self.sync_sequences()

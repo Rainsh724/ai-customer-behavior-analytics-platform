@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS products (
     is_fake BOOLEAN DEFAULT FALSE,
     rate DOUBLE PRECISION,
     rate_cnt BIGINT,
-    raw_text_normalized TEXT
+    vector_title VECTOR(768)
 );
  
 
@@ -76,25 +76,33 @@ CREATE TABLE IF NOT EXISTS user_behavior_logs (
 CREATE TABLE IF NOT EXISTS comments (
     id BIGINT PRIMARY KEY,
     product_id BIGINT REFERENCES products(id),
-    
-
-    
     is_buyer BOOLEAN,
-    
-    body TEXT,
+
     rate DOUBLE PRECISION,
     recommendation_status VARCHAR(50),
     likes INT DEFAULT 0,
     dislikes INT DEFAULT 0,
-    advantages JSONB,                                   
-    disadvantages JSONB,                                
-    true_to_size_rate VARCHAR(20),                     
-    predicted_sentiment VARCHAR(50),
     raw_text_normalized TEXT,
-    created_at TIMESTAMPTZ                                   
+                               
+    created_at TIMESTAMPTZ ,   
+    embedded_comment  VECTOR(768)                             
 );
 
+CREATE TABLE IF NOT EXISTS comment_aspects (
+    aspect_id BIGSERIAL PRIMARY KEY,
 
+    comment_id BIGINT NOT NULL
+        REFERENCES comments(id)
+        ON DELETE CASCADE,
+
+    term VARCHAR(255),
+    sentiment VARCHAR(50),
+
+    negative_pct DOUBLE PRECISION,
+    neutral_pct DOUBLE PRECISION,
+    positive_pct DOUBLE PRECISION
+
+);
 -- ==========================================
 -- INDEXES - CORE  ESSENTIAL
 -- ==========================================
@@ -103,7 +111,8 @@ CREATE TABLE IF NOT EXISTS comments (
 CREATE INDEX IF NOT EXISTS idx_sessions_user
 ON sessions(user_id);
 
-
+CREATE INDEX IF NOT EXISTS idx_sessions_city
+ON sessions(city_id);
 
 CREATE INDEX IF NOT EXISTS idx_products_category
 ON products(category_id);
@@ -111,16 +120,20 @@ ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_brand
 ON products(brand_id);
 
+CREATE INDEX IF NOT EXISTS idx_products_seller
+ON products(seller_id);
 
-
-CREATE INDEX IF NOT EXISTS idx_behavior_session
-ON user_behavior_logs(session_id);
-
-
+CREATE INDEX IF NOT EXISTS idx_behavior_session_event
+ON user_behavior_logs(session_id, event_type);
 
 CREATE INDEX IF NOT EXISTS idx_behavior_product_event
 ON user_behavior_logs(product_id, event_type);
 
-
 CREATE INDEX IF NOT EXISTS idx_comments_product
 ON comments(product_id);
+
+CREATE INDEX IF NOT EXISTS idx_comment_aspects_comment
+ON comment_aspects(comment_id);
+
+CREATE INDEX IF NOT EXISTS idx_comment_aspects_term
+ON comment_aspects(term);
