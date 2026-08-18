@@ -20,9 +20,9 @@ class ProjectConfig:
     COMMENTS_DIR = DATASET_DIR / "comment_json"
 
     # PostgreSQL Connection Settings
-    DB_NAME = os.getenv("DB_NAME", "customer_behavior")
+    DB_NAME = os.getenv("DB_NAME", "ai_project")
     DB_USER = os.getenv("DB_USER", "postgres")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "zynb1223")
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = os.getenv("DB_PORT", "5432")
 
@@ -207,8 +207,7 @@ class DuckDBETLLoader:
         query = f"""
             INSERT INTO pg.products (
                 id, title_fa, brand_id, category_id, seller_id,
-                price, min_price_last_month, is_fake, rate, rate_cnt,
-                raw_text, raw_text_normalized
+                price, min_price_last_month, is_fake, rate, rate_cnt, raw_text_normalized
             )
             SELECT DISTINCT
                 CAST(src.id AS BIGINT),
@@ -221,7 +220,6 @@ class DuckDBETLLoader:
                 COALESCE(CAST(src.Is_Fake AS BOOLEAN), FALSE),
                 CAST(src.Rate AS DOUBLE PRECISION),
                 CAST(src.Rate_cnt AS BIGINT),
-                CAST(src.raw_text AS TEXT),
                 CAST(src.raw_text_normalized AS TEXT)
             FROM read_parquet('{path}', union_by_name=true) AS src
             LEFT JOIN pg.brands AS b ON b.name = TRIM(CAST(src.Brand AS VARCHAR))
@@ -241,7 +239,6 @@ class DuckDBETLLoader:
                 is_fake = EXCLUDED.is_fake,
                 rate = EXCLUDED.rate,
                 rate_cnt = EXCLUDED.rate_cnt,
-                raw_text = EXCLUDED.raw_text,
                 raw_text_normalized = EXCLUDED.raw_text_normalized;
         """
         self._execute_etl_step("products", query)
@@ -311,7 +308,6 @@ class DuckDBETLLoader:
                 disadvantages,
                 true_to_size_rate,
                 predicted_sentiment,
-                raw_text,
                 raw_text_normalized,
                 created_at
             )
@@ -347,7 +343,6 @@ class DuckDBETLLoader:
 
                 CAST(src.predicted_sentiment AS VARCHAR),
 
-                CAST(src.raw_text AS TEXT),
 
                 CAST(src.raw_text_normalized AS TEXT),
 
