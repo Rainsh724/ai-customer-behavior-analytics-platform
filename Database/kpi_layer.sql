@@ -1,127 +1,132 @@
 -- ============================================================
 -- 0. SCHEMA SETUP
--- ساخت محیط ایزوله برای جداول داشبورد و KPI
+-- ساخت محیط ایزوله و حرفه‌ای برای لایه هوش تجاری (BI) و چت‌بات
 -- ============================================================
 CREATE SCHEMA IF NOT EXISTS kpi;
 
-DROP TABLE IF EXISTS kpi.global_funnel CASCADE;
-DROP TABLE IF EXISTS kpi.product_performance CASCADE;
-DROP TABLE IF EXISTS kpi.user_segments CASCADE;
-DROP TABLE IF EXISTS kpi.category_performance CASCADE;
-DROP TABLE IF EXISTS kpi.time_trends CASCADE;
-DROP TABLE IF EXISTS kpi.product_sentiment CASCADE;
-
 -- ============================================================
--- 1. FUNNEL KPIs (جایگزین تابع funnel_kpis در پایتون)
+-- 1. GLOBAL EXECUTIVE FUNNEL (دیدگاه کلان برای مدیر)
+-- پاسخ به سوالات آماری: نرخ تبدیل کل سایت چقدر است؟
+-- منبع الهام: کدهای پایتون بخش Funnel KPIs
 -- ============================================================
-CREATE TABLE kpi.global_funnel AS
+CREATE OR REPLACE VIEW kpi.global_funnel AS
 SELECT
     SUM(total_views) AS total_views,
     SUM(total_cart_adds) AS total_carts,
     SUM(total_purchases) AS total_purchases,
     SUM(total_removes) AS total_removes,
     
-    -- محاسبه نرخ‌های تبدیل قیف فروش
-    SUM(total_cart_adds)::FLOAT / NULLIF(SUM(total_views), 0) AS view_to_cart_rate,
-    SUM(total_purchases)::FLOAT / NULLIF(SUM(total_cart_adds), 0) AS cart_to_purchase_rate,
-    SUM(total_purchases)::FLOAT / NULLIF(SUM(total_views), 0) AS overall_conversion,
-    
-    -- محاسبه نرخ ترک سبد و حذف
-    (SUM(total_cart_adds) - SUM(total_purchases))::FLOAT / NULLIF(SUM(total_cart_adds), 0) AS cart_abandon_rate,
-    SUM(total_removes)::FLOAT / NULLIF(SUM(total_cart_adds), 0) AS remove_rate,
-    SUM(total_removes)::FLOAT / (NULLIF(SUM(total_purchases), 0) + 1) AS remove_to_purchase_ratio
-FROM analytics.feature_time; -- استفاده از جدول تجمیع‌شده زمانی برای سرعت بیشتر
+    -- محاسبه دقیق نرخ‌های تبدیل با جلوگیری از خطای تقسیم بر صفر
+    ROUND((SUM(total_cart_adds)::NUMERIC / NULLIF(SUM(total_views), 0)) * 100, 2) AS view_to_cart_pct,
+    ROUND((SUM(total_purchases)::NUMERIC / NULLIF(SUM(total_cart_adds), 0)) * 100, 2) AS cart_to_purchase_pct,
+    ROUND((SUM(total_purchases)::NUMERIC / NULLIF(SUM(total_views), 0)) * 100, 2) AS overall_conversion_pct,
+    ROUND((SUM(total_removes)::NUMERIC / NULLIF(SUM(total_cart_adds), 0)) * 100, 2) AS cart_abandonment_pct
+FROM analytics.feature_time;
 
 -- ============================================================
--- 2. PRODUCT KPIs (جایگزین تابع product_kpis در پایتون)
--- شامل بهترین محصولات، محصولات با بیشترین درآمد و بیشترین حذفی
+-- 2. PRODUCT 360 & ACTIONABLE INSIGHTS (مغز متفکر ایجنت)
+-- پاسخ به سوالات هیبریدی: چرا فلان محصول فروش نمی‌رود؟ چه کنیم؟
+-- ترکیب رفتار کاربر + فروش + تحلیل احساسات (ABSA)
 -- ============================================================
-CREATE TABLE kpi.product_performance AS
+CREATE OR REPLACE VIEW kpi.product_360 AS
 SELECT
     p.product_id,
     rp.title_fa,
+    rp.price,
+    
+    -- متریک‌های فروش و رفتار
     p.total_views,
-    p.total_cart_adds,
     p.total_purchases,
-    p.total_removes,
+    (p.total_purchases * rp.price) AS total_revenue,
+    ROUND((p.total_purchases::NUMERIC / NULLIF(p.total_views, 0)) * 100, 2) AS conversion_rate,
     
-    -- Funnel Rates (برای پیدا کردن best_funnel_products و worst_cart_products)
-    p.total_cart_adds::FLOAT / NULLIF(p.total_views, 0) AS view_to_cart_rate,
-    p.total_purchases::FLOAT / NULLIF(p.total_cart_adds, 0) AS cart_to_purchase_rate,
-    (p.total_cart_adds - p.total_purchases)::FLOAT / NULLIF(p.total_cart_adds, 0) AS cart_abandon_rate,
-    p.total_removes::FLOAT / NULLIF(p.total_cart_adds, 0) AS remove_rate,
-    
-    -- محاسبه درآمد (برای top_revenue_products)
-    (p.total_purchases * rp.price) AS total_revenue
-FROM analytics.feature_product p[cite: 3]
-JOIN public.products rp ON p.product_id = rp.id;
+    -- متریک‌های احساسات (از مدل ABSA)
+    COALESCE(ps.comment_count, 0) AS comment_count,
+    ROUND(ps.avg_rate::NUMERIC, 2) AS star_rating,
+    ROUND((ps.positive_aspect_ratio * 100)::NUMERIC, 2) AS positive_sentiment_pct,
+    ROUND(((ps.positive_aspect_ratio - ps.negative_aspect_ratio) * 100)::NUMERIC, 2) AS sentiment_score,
+
+    -- برچسب‌گذاری هوشمند مدیریتی (Actionable Tags) برای تصمیم‌گیری ایجنت
+    CASE 
+        WHEN (p.total_purchases * rp.price) > 50000000 AND ps.positive_aspect_ratio > 0.7 THEN 'Hero Product (قهرمان)'
+        WHEN p.total_views > 1000 AND p.total_purchases < 5 THEN 'High Traffic, Low Conversion (نیازمند بررسی قیمت)'
+        WHEN (ps.negative_aspect_ratio > 0.5) AND p.total_purchases > 10 THEN 'High Risk (فروش بالا اما به شدت ناراضی)'
+        WHEN ps.comment_count = 0 THEN 'Needs Reviews (نیازمند کمپین ثبت نظر)'
+        ELSE 'Normal'
+    END AS managerial_action_tag
+
+FROM analytics.feature_product p
+JOIN public.products rp ON p.product_id = rp.id
+LEFT JOIN analytics.feature_product_sentiment ps ON p.product_id = ps.product_id;
 
 -- ============================================================
--- 3. USER SEGMENTATION & RETENTION (جایگزین user_segmentation و retention_kpis)
+-- 3. USER RFM & SEGMENTATION (بخش‌بندی مشتریان)
+-- پاسخ به سوالات: مشتریان وفادار کیستند؟ چه کسانی در حال ریزش هستند؟
+-- منبع الهام: کدهای پایتون بخش User Segmentation
 -- ============================================================
-CREATE TABLE kpi.user_segments AS
+CREATE OR REPLACE VIEW kpi.user_segments AS
 SELECT
     user_id,
+    active_days,
     total_views,
     total_purchases,
-    total_removes,
-    total_cart_adds,
+    total_spend,
     
-    -- نرخ تبدیل کاربر
-    total_purchases::FLOAT / NULLIF(total_views, 0) AS conversion_rate,
+    -- برچسب‌گذاری رفتار کاربر
+    CASE 
+        WHEN total_purchases >= 5 AND total_spend > 10000000 THEN 'VIP Customer'
+        WHEN total_purchases > 1 AND total_purchases < 5 THEN 'Returning Customer'
+        WHEN total_purchases = 1 THEN 'One-Time Buyer'
+        WHEN total_purchases = 0 AND total_views > 20 THEN 'Window Shopper (فقط بازدیدکننده)'
+        ELSE 'Low Engagement'
+    END AS user_segment,
     
-    -- برچسب‌گذاری (Tagging) کاربران بر اساس منطق پایتون قبلی
-    CASE WHEN total_purchases > 10 THEN true ELSE false END AS is_heavy_user,
-    CASE WHEN total_views < 5 THEN true ELSE false END AS is_low_engagement_user,
-    CASE WHEN (total_removes::FLOAT / NULLIF(total_cart_adds, 0)) > 0.5 THEN true ELSE false END AS is_high_remove_user,
-    
-    -- وضعیت بازگشت کاربر (Retention)
-    CASE WHEN total_sessions > 1 THEN 'Returning' ELSE 'One-Time' END AS retention_status
-FROM analytics.feature_user;[cite: 3]
+    -- نسبت بازدید به خرید
+    ROUND((total_purchases::NUMERIC / NULLIF(total_views, 0)) * 100, 2) AS user_conversion_pct
+
+FROM analytics.feature_user;
 
 -- ============================================================
--- 4. CATEGORY KPIs (جایگزین تابع category_kpis در پایتون)
+-- 4. BRAND & CATEGORY DIAGNOSTICS (عملکرد برندها)
+-- پاسخ به سوالات: کدام برند بیشترین محبوبیت و فروش را دارد؟
 -- ============================================================
-CREATE TABLE kpi.category_performance AS
+CREATE OR REPLACE VIEW kpi.brand_diagnostics AS
 SELECT
-    c.category_id,
-    rc.category1,
-    rc.category2,
-    c.total_views,
-    c.total_cart_adds,
-    c.total_purchases,
-    -- محاسبه تقریبی درآمد هر دسته
-    (c.total_purchases * c.avg_product_price) AS estimated_revenue
-FROM analytics.feature_category c[cite: 3]
-JOIN public.categories rc ON c.category_id = rc.category_id;
+    b.brand_id,
+    rb.name AS brand_name,
+    b.total_views,
+    b.total_purchases,
+    
+    -- وضعیت احساسات برند
+    bs.total_comments,
+    ROUND(bs.avg_comment_rating::NUMERIC, 2) AS avg_rating,
+    ROUND(((bs.positive_aspect_mentions::NUMERIC - bs.negative_aspect_mentions::NUMERIC) / NULLIF(bs.total_aspect_mentions, 0)) * 100, 2) AS brand_sentiment_score
+
+FROM analytics.feature_brand b
+JOIN public.brands rb ON b.brand_id = rb.brand_id
+LEFT JOIN analytics.feature_brand_sentiment bs ON b.brand_id = bs.brand_id;
 
 -- ============================================================
--- 5. TIME TRENDS (جایگزین تابع time_kpis در پایتون)
+-- 5. ROOT CAUSE ANALYSIS - ASPECTS (علت‌یابی ریشه‌ای)
+-- پاسخ به سوالات: چرا مردم ناراضی‌اند؟ (باتری، قیمت، بو؟)
+-- این ویو مستقیماً برای موتور فیلترینگ ایجنت استفاده می‌شود
 -- ============================================================
-CREATE TABLE kpi.time_trends AS
+CREATE OR REPLACE VIEW kpi.aspect_diagnostics AS
 SELECT
-    hour,
-    iso_weekday AS weekday,
-    total_events AS hourly_activity,
-    total_purchases AS purchase_by_hour
-FROM analytics.feature_time;[cite: 3, 5]
+    term AS aspect_name,
+    total_mentions,
+    positive_mentions,
+    negative_mentions,
+    
+    -- محاسبه میزان بحرانی بودن یک ویژگی
+    ROUND((negative_mentions::NUMERIC / NULLIF(total_mentions, 0)) * 100, 2) AS negative_impact_pct,
+    
+    CASE
+        WHEN (negative_mentions::NUMERIC / NULLIF(total_mentions, 0)) > 0.6 THEN 'Critical Weakness (نقطه ضعف بحرانی)'
+        WHEN (positive_mentions::NUMERIC / NULLIF(total_mentions, 0)) > 0.7 THEN 'Key Strength (نقطه قوت کلیدی)'
+        ELSE 'Neutral'
+    END AS aspect_status
 
--- ============================================================
--- 6. ABSA: PRODUCT SENTIMENT (فیچر جدید بر اساس Aspectها)
--- محاسبه درصد احساسات و ترکیب با امتیازدهی (Sentiment Score)
--- ============================================================
-CREATE TABLE kpi.product_sentiment AS
-SELECT 
-    ps.product_id,
-    ps.comment_count,
-    ROUND(ps.avg_rate::NUMERIC, 2) AS avg_rate,
-    ps.total_aspect_mentions,
-    
-    -- تبدیل نسبت‌ها به درصد (0 تا 100) برای نمایش در داشبورد
-    ROUND((ps.positive_aspect_ratio * 100)::NUMERIC, 2) AS positive_pct,
-    ROUND((ps.negative_aspect_ratio * 100)::NUMERIC, 2) AS negative_pct,
-    ROUND((ps.neutral_aspect_ratio * 100)::NUMERIC, 2) AS neutral_pct,
-    
-    -- محاسبه یکپارچه نمره احساسات (مثبت منهای منفی)
-    ROUND(((ps.positive_aspect_ratio - ps.negative_aspect_ratio) * 100)::NUMERIC, 2) AS sentiment_score
-FROM analytics.feature_product_sentiment ps;[cite: 3]
+FROM analytics.feature_aspect
+WHERE total_mentions > 5 -- حذف نویزها (ویژگی‌هایی که کمتر از ۵ بار تکرار شده‌اند)
+ORDER BY total_mentions DESC;

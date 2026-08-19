@@ -22,7 +22,7 @@ class ProjectConfig:
     # PostgreSQL Connection Settings
     DB_NAME = os.getenv("DB_NAME", "ai_project")
     DB_USER = os.getenv("DB_USER", "postgres")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "zynb1223")
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = os.getenv("DB_PORT", "5432")
 
@@ -207,12 +207,9 @@ class DuckDBETLLoader:
         query = f"""
             INSERT INTO pg.products (
                 id, title_fa, brand_id, category_id, seller_id,
-<<<<<<< HEAD:src/load_data_to_databaseeee.py
                 price, min_price_last_month, is_fake, rate, rate_cnt
                 
-=======
-                price, min_price_last_month, is_fake, rate, rate_cnt, raw_text_normalized
->>>>>>> 0a0f2d42b43366764ceb272bd4791217c8bf6aba:src/load_data_to_database.py
+
             )
             SELECT DISTINCT
                 CAST(src.id AS BIGINT),
@@ -224,13 +221,9 @@ class DuckDBETLLoader:
                 CAST(src.min_price_last_month AS BIGINT),
                 COALESCE(CAST(src.Is_Fake AS BOOLEAN), FALSE),
                 CAST(src.Rate AS DOUBLE PRECISION),
-<<<<<<< HEAD:src/load_data_to_databaseeee.py
                 CAST(src.Rate_cnt AS BIGINT)
 
-=======
-                CAST(src.Rate_cnt AS BIGINT),
-                CAST(src.raw_text_normalized AS TEXT)
->>>>>>> 0a0f2d42b43366764ceb272bd4791217c8bf6aba:src/load_data_to_database.py
+
             FROM read_parquet('{path}', union_by_name=true) AS src
             LEFT JOIN pg.brands AS b ON b.name = TRIM(CAST(src.Brand AS VARCHAR))
             LEFT JOIN pg.categories AS c 
@@ -248,12 +241,8 @@ class DuckDBETLLoader:
                 min_price_last_month = EXCLUDED.min_price_last_month,
                 is_fake = EXCLUDED.is_fake,
                 rate = EXCLUDED.rate,
-<<<<<<< HEAD:src/load_data_to_databaseeee.py
                 rate_cnt = EXCLUDED.rate_cnt;
-=======
-                rate_cnt = EXCLUDED.rate_cnt,
-                raw_text_normalized = EXCLUDED.raw_text_normalized;
->>>>>>> 0a0f2d42b43366764ceb272bd4791217c8bf6aba:src/load_data_to_database.py
+
         """
         self._execute_etl_step("products", query)
 
@@ -302,13 +291,7 @@ class DuckDBETLLoader:
                 recommendation_status,
                 likes,
                 dislikes,
-<<<<<<< HEAD:src/load_data_to_databaseeee.py
-=======
-                advantages,
-                disadvantages,
-                true_to_size_rate,
-                predicted_sentiment,
->>>>>>> 0a0f2d42b43366764ceb272bd4791217c8bf6aba:src/load_data_to_database.py
+
                 raw_text_normalized,
                 created_at
             )
@@ -334,20 +317,7 @@ class DuckDBETLLoader:
                     0
                 ),
 
-<<<<<<< HEAD:src/load_data_to_databaseeee.py
                 CAST(src.body AS TEXT),
-=======
-                
-                CAST(src.advantages AS JSON),
-                CAST(src.disadvantages AS JSON),
-
-                CAST(src.true_to_size_rate AS VARCHAR),
-
-                CAST(src.predicted_sentiment AS VARCHAR),
-
-
-                CAST(src.raw_text_normalized AS TEXT),
->>>>>>> 0a0f2d42b43366764ceb272bd4791217c8bf6aba:src/load_data_to_database.py
 
                 CAST(src.created_at AS TIMESTAMPTZ)
 
@@ -494,9 +464,9 @@ class DuckDBETLLoader:
             logging.info("اتصال DuckDB بسته شد.")
 
 
-# if __name__ == "__main__":
-#     loader = DuckDBETLLoader()
-#     loader.run()
+if __name__ == "__main__":
+    loader = DuckDBETLLoader()
+    loader.run()
 
 
 
@@ -512,11 +482,11 @@ class DuckDBETLLoader:
 #         logging.info("اتصال DuckDB بسته شد.")
 
 
-if __name__ == "__main__":
-    loader = DuckDBETLLoader()
+# if __name__ == "__main__":
+#     loader = DuckDBETLLoader()
 
-    try:
-        loader.load_comment_aspects()
-    finally:
-        loader.con.close()
-        logging.info("اتصال DuckDB بسته شد.")
+#     try:
+#         loader.load_comment_aspects()
+#     finally:
+#         loader.con.close()
+#         logging.info("اتصال DuckDB بسته شد.")

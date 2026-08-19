@@ -193,9 +193,9 @@ WITH base AS (
 
         s.user_id,
 
-        b.log_id,
-        b.session_id,
-        b.product_id,
+        l.log_id,
+        l.session_id,
+        l.product_id,
         s.city_id,
 
         l.timestamp,

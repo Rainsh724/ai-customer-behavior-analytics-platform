@@ -177,7 +177,7 @@ class CommentEmbeddingLoader:
         query = """
             UPDATE comments
             SET embedded_comment = %s::vector
-            WHERE id = %s
+            WHERE id = %s  AND embedded_comment IS NULL
         """
 
         with self.conn.cursor() as cursor:
