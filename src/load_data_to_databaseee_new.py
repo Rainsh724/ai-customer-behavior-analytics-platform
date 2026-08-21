@@ -239,9 +239,9 @@ class DuckDBETLLoader:
         query = f"""
             INSERT INTO pg.products (
                 id, title_fa, brand_id, category_id, seller_id,
+
                 price, min_price_last_month, is_fake, rate, rate_cnt
                 
-
             )
             SELECT DISTINCT
                 CAST(src.id AS BIGINT),
@@ -253,6 +253,7 @@ class DuckDBETLLoader:
                 CAST(src.min_price_last_month AS BIGINT),
                 COALESCE(CAST(src.Is_Fake AS BOOLEAN), FALSE),
                 CAST(src.Rate AS DOUBLE PRECISION),
+
                 CAST(src.Rate_cnt AS BIGINT)
 
 
@@ -273,6 +274,7 @@ class DuckDBETLLoader:
                 min_price_last_month = EXCLUDED.min_price_last_month,
                 is_fake = EXCLUDED.is_fake,
                 rate = EXCLUDED.rate,
+
                 rate_cnt = EXCLUDED.rate_cnt;
 
         """
@@ -351,7 +353,8 @@ class DuckDBETLLoader:
                     0
                 ),
 
-                CAST(src.body AS TEXT),
+                CAST(src.raw_text_normalized AS TEXT),
+
 
                 CAST(src.created_at AS TIMESTAMPTZ)
 
@@ -485,9 +488,9 @@ class DuckDBETLLoader:
             logging.info("اتصال DuckDB بسته شد.")
 
 
-if __name__ == "__main__":
-    loader = DuckDBETLLoader()
-    loader.run()
+# if __name__ == "__main__":
+#     loader = DuckDBETLLoader()
+#     loader.run()
 
 
 
@@ -503,11 +506,13 @@ if __name__ == "__main__":
 #         logging.info("اتصال DuckDB بسته شد.")
 
 
-# if __name__ == "__main__":
-#     loader = DuckDBETLLoader()
+if __name__ == "__main__":
+    loader = DuckDBETLLoader()
 
-#     try:
-#         loader.load_comment_aspects()
-#     finally:
-#         loader.con.close()
-#         logging.info("اتصال DuckDB بسته شد.")
+    try:
+        loader.load_comments()
+        loader.load_comment_aspects()
+        
+    finally:
+        loader.con.close()
+        logging.info("اتصال DuckDB بسته شد.")
