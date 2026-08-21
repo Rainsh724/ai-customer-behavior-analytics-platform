@@ -22,7 +22,7 @@ class ProjectConfig:
     # PostgreSQL Connection Settings
     DB_NAME = os.getenv("DB_NAME", "ai_project")
     DB_USER = os.getenv("DB_USER", "postgres")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "zynb1223")
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = os.getenv("DB_PORT", "5432")
 
@@ -113,72 +113,104 @@ class DuckDBETLLoader:
 
     def load_cities(self):
         path = self._get_glob_path(ProjectConfig.LOGS_DIR)
-        query = f"""
-            INSERT INTO pg.cities (city_id, name)
-            SELECT 
-                ROW_NUMBER() OVER () + COALESCE((SELECT MAX(city_id) FROM pg.cities), 0) AS city_id,
-                city_name AS name
-            FROM (
-                SELECT DISTINCT TRIM(CAST(city AS VARCHAR)) AS city_name
-                FROM read_parquet('{path}', union_by_name=true)
-                WHERE city IS NOT NULL AND TRIM(CAST(city AS VARCHAR)) <> ''
-            )
-            ON CONFLICT (name) DO NOTHING;
+        
+        # ۰. پاک کردن جدول موقت در صورتی که وجود دارد
+        self.con.sql("DROP TABLE IF EXISTS pg.stg_cities;")
+        
+        # ۱. ساخت جدول موقت
+        stg_query = f"""
+            CREATE UNLOGGED TABLE pg.stg_cities AS
+            SELECT DISTINCT TRIM(CAST(city AS VARCHAR)) AS name
+            FROM read_parquet('{path}', union_by_name=true)
+            WHERE city IS NOT NULL AND TRIM(CAST(city AS VARCHAR)) <> '';
         """
-        self._execute_etl_step("cities", query)
+        self.con.sql(stg_query)
+        
+        # ۲. دور زدن باگ DuckDB با استفاده از ارسال مستقیم کوئری به پستگرس
+        insert_query = """
+            CALL postgres_execute('pg', '
+                INSERT INTO cities (name)
+                SELECT name FROM stg_cities
+                ON CONFLICT (name) DO NOTHING;
+            ');
+        """
+        self._execute_etl_step("cities", insert_query)
+        
+        # ۳. پاک کردن جدول موقت
+        self.con.sql("DROP TABLE IF EXISTS pg.stg_cities;")
 
     def load_brands(self):
         path = self._get_glob_path(ProjectConfig.PRODUCTS_DIR)
-        query = f"""
-            INSERT INTO pg.brands (brand_id, name)
-            SELECT 
-                ROW_NUMBER() OVER () + COALESCE((SELECT MAX(brand_id) FROM pg.brands), 0) AS brand_id,
-                brand_name AS name
-            FROM (
-                SELECT DISTINCT TRIM(CAST(Brand AS VARCHAR)) AS brand_name
-                FROM read_parquet('{path}', union_by_name=true)
-                WHERE Brand IS NOT NULL AND TRIM(CAST(Brand AS VARCHAR)) <> ''
-            )
-            ON CONFLICT (name) DO NOTHING;
+        
+        self.con.sql("DROP TABLE IF EXISTS pg.stg_brands;")
+        
+        stg_query = f"""
+            CREATE UNLOGGED TABLE pg.stg_brands AS
+            SELECT DISTINCT TRIM(CAST(Brand AS VARCHAR)) AS name
+            FROM read_parquet('{path}', union_by_name=true)
+            WHERE Brand IS NOT NULL AND TRIM(CAST(Brand AS VARCHAR)) <> '';
         """
-        self._execute_etl_step("brands", query)
+        self.con.sql(stg_query)
+        
+        insert_query = """
+            CALL postgres_execute('pg', '
+                INSERT INTO brands (name)
+                SELECT name FROM stg_brands
+                ON CONFLICT (name) DO NOTHING;
+            ');
+        """
+        self._execute_etl_step("brands", insert_query)
+        self.con.sql("DROP TABLE IF EXISTS pg.stg_brands;")
 
     def load_categories(self):
         path = self._get_glob_path(ProjectConfig.PRODUCTS_DIR)
-        query = f"""
-            INSERT INTO pg.categories (category_id, category1, category2, sub_category)
-            SELECT 
-                ROW_NUMBER() OVER () + COALESCE((SELECT MAX(category_id) FROM pg.categories), 0) AS category_id,
-                category1,
-                category2,
-                sub_category
-            FROM (
-                SELECT DISTINCT
-                    TRIM(CAST(Category1 AS VARCHAR)) AS category1,
-                    TRIM(CAST(Category2 AS VARCHAR)) AS category2,
-                    NULLIF(TRIM(CAST(sub_category AS VARCHAR)), '') AS sub_category
-                FROM read_parquet('{path}', union_by_name=true)
-                WHERE Category1 IS NOT NULL 
-            )
-            ON CONFLICT (category1, category2, sub_category) DO NOTHING;
+        
+        self.con.sql("DROP TABLE IF EXISTS pg.stg_categories;")
+        
+        stg_query = f"""
+            CREATE UNLOGGED TABLE pg.stg_categories AS
+            SELECT DISTINCT
+                TRIM(CAST(Category1 AS VARCHAR)) AS category1,
+                TRIM(CAST(Category2 AS VARCHAR)) AS category2,
+                NULLIF(TRIM(CAST(sub_category AS VARCHAR)), '') AS sub_category
+            FROM read_parquet('{path}', union_by_name=true)
+            WHERE Category1 IS NOT NULL;
         """
-        self._execute_etl_step("categories", query)
+        self.con.sql(stg_query)
+        
+        insert_query = """
+            CALL postgres_execute('pg', '
+                INSERT INTO categories (category1, category2, sub_category)
+                SELECT category1, category2, sub_category FROM stg_categories
+                ON CONFLICT (category1, category2, sub_category) DO NOTHING;
+            ');
+        """
+        self._execute_etl_step("categories", insert_query)
+        self.con.sql("DROP TABLE IF EXISTS pg.stg_categories;")
 
     def load_sellers(self):
         path = self._get_glob_path(ProjectConfig.PRODUCTS_DIR)
-        query = f"""
-            INSERT INTO pg.sellers (seller_id, seller_title)
-            SELECT 
-                ROW_NUMBER() OVER () + COALESCE((SELECT MAX(seller_id) FROM pg.sellers), 0) AS seller_id,
-                seller_title
-            FROM (
-                SELECT DISTINCT TRIM(CAST(Seller AS VARCHAR)) AS seller_title
-                FROM read_parquet('{path}', union_by_name=true)
-                WHERE Seller IS NOT NULL AND TRIM(CAST(Seller AS VARCHAR)) <> ''
-            )
-            ON CONFLICT (seller_title) DO NOTHING;
+        
+        self.con.sql("DROP TABLE IF EXISTS pg.stg_sellers;")
+        
+        stg_query = f"""
+            CREATE UNLOGGED TABLE pg.stg_sellers AS
+            SELECT DISTINCT TRIM(CAST(Seller AS VARCHAR)) AS seller_title
+            FROM read_parquet('{path}', union_by_name=true)
+            WHERE Seller IS NOT NULL AND TRIM(CAST(Seller AS VARCHAR)) <> '';
         """
-        self._execute_etl_step("sellers", query)
+        self.con.sql(stg_query)
+        
+        insert_query = """
+            CALL postgres_execute('pg', '
+                INSERT INTO sellers (seller_title)
+                SELECT seller_title FROM stg_sellers
+                ON CONFLICT (seller_title) DO NOTHING;
+            ');
+        """
+        self._execute_etl_step("sellers", insert_query)
+        
+        self.con.sql("DROP TABLE IF EXISTS pg.stg_sellers;")
 
     def load_sessions(self):
         path = self._get_glob_path(ProjectConfig.LOGS_DIR)
@@ -248,36 +280,38 @@ class DuckDBETLLoader:
 
     def load_user_behavior_logs(self):
         path = self._get_glob_path(ProjectConfig.LOGS_DIR)
-        query = f"""
-            INSERT INTO pg.user_behavior_logs (log_id, session_id, product_id, event_type, timestamp)
-            SELECT 
-                ROW_NUMBER() OVER () + COALESCE((SELECT MAX(log_id) FROM pg.user_behavior_logs), 0) AS log_id,
-                session_id,
-                product_id,
-                event_type,
-                timestamp
-            FROM (
-                SELECT DISTINCT
-                    TRIM(CAST(src.session_id AS VARCHAR)) AS session_id,
-                    CAST(src.product_id AS BIGINT) AS product_id,
-                    CAST(src.event_type AS VARCHAR) AS event_type,
-                    CAST(src.timestamp AS TIMESTAMPTZ) AS timestamp
-                FROM read_parquet('{path}', union_by_name=true) AS src
-                INNER JOIN pg.sessions AS sess ON sess.session_id = TRIM(CAST(src.session_id AS VARCHAR))
-                INNER JOIN pg.products AS prod ON prod.id = CAST(src.product_id AS BIGINT)
-                WHERE src.session_id IS NOT NULL 
-                  AND src.product_id IS NOT NULL
-                  AND src.event_type IS NOT NULL
-                  AND src.timestamp IS NOT NULL
-            )
-            ON CONFLICT (
-                session_id,
-                product_id,
-                event_type,
-                timestamp
-            ) DO NOTHING;
+
+        # ۰. پاک کردن جدول موقت در صورتی که وجود دارد
+        self.con.sql("DROP TABLE IF EXISTS pg.temp_stg_logs;")
+
+        # ۱. ساخت جدول موقت
+        staging_query = f"""
+            CREATE UNLOGGED TABLE pg.temp_stg_logs AS
+            SELECT DISTINCT session_id, product_id, event_type, timestamp
+            FROM read_parquet('{path}', union_by_name=true)
+            WHERE session_id IS NOT NULL AND product_id IS NOT NULL;
         """
-        self._execute_etl_step("user_behavior_logs", query)
+        self._execute_etl_step("stg_logs_creation", staging_query)
+
+        # ۲. اینسرت نهایی با دور زدن DuckDB
+        insert_query = """
+            CALL postgres_execute('pg', '
+                INSERT INTO user_behavior_logs (session_id, product_id, event_type, timestamp)
+                SELECT
+                    TRIM(CAST(src.session_id AS VARCHAR)),
+                    CAST(src.product_id AS BIGINT),
+                    CAST(src.event_type AS VARCHAR),
+                    CAST(src.timestamp AS TIMESTAMPTZ)
+                FROM temp_stg_logs AS src
+                INNER JOIN sessions AS sess ON sess.session_id = TRIM(CAST(src.session_id AS VARCHAR))
+                INNER JOIN products AS prod ON prod.id = CAST(src.product_id AS BIGINT)
+                ON CONFLICT (session_id, product_id, event_type, timestamp) DO NOTHING;
+            ');
+        """
+        self._execute_etl_step("user_behavior_logs_insert", insert_query)
+
+        # ۳. پاک کردن جدول موقت
+        self.con.sql("DROP TABLE IF EXISTS pg.temp_stg_logs;")
 
     def load_comments(self):
         path = self._get_glob_path(ProjectConfig.COMMENTS_DIR)
@@ -348,57 +382,44 @@ class DuckDBETLLoader:
 
     def load_comment_aspects(self):
         path = self._get_glob_path(ProjectConfig.COMMENTS_DIR)
-        query = f"""
-            INSERT INTO pg.comment_aspects (
-                aspect_id,
-                comment_id,
-                term,
-                sentiment,
-                negative_pct,
-                neutral_pct,
-                positive_pct
-            )
+        
+        self.con.sql("DROP TABLE IF EXISTS pg.stg_comment_aspects;")
 
+        # ۱. ساخت جدول موقت و باز کردن JSON در DuckDB
+        staging_query = f"""
+            CREATE UNLOGGED TABLE pg.stg_comment_aspects AS
             SELECT
-                ROW_NUMBER() OVER () AS aspect_id,
-
                 CAST(src.id AS BIGINT) AS comment_id,
-
-                NULLIF(
-                    TRIM(CAST(aspect.term AS VARCHAR)),
-                    ''
-                ) AS term,
-
-                NULLIF(
-                    TRIM(CAST(aspect.sentiment AS VARCHAR)),
-                    ''
-                ) AS sentiment,
-
+                NULLIF(TRIM(CAST(aspect.term AS VARCHAR)), '') AS term,
+                NULLIF(TRIM(CAST(aspect.sentiment AS VARCHAR)), '') AS sentiment,
                 CAST(aspect.negative_pct AS DOUBLE) AS negative_pct,
                 CAST(aspect.neutral_pct AS DOUBLE) AS neutral_pct,
                 CAST(aspect.positive_pct AS DOUBLE) AS positive_pct
-
-            FROM read_parquet(
-                '{path}',
-                union_by_name=true
-            ) AS src
-
-            INNER JOIN pg.comments AS c
-                ON c.id = CAST(src.id AS BIGINT)
-
-            CROSS JOIN json_each(
-                CAST(src.aspects_json AS JSON)
-            ) AS t(key, aspect)
-
-            WHERE
-                src.id IS NOT NULL
-                AND src.aspects_json IS NOT NULL
-                AND src.aspects_json <> '[]'
-
-            ON CONFLICT DO NOTHING;
+            FROM read_parquet('{path}', union_by_name=true) AS src
+            CROSS JOIN json_each(CAST(src.aspects_json AS JSON)) AS t(key, aspect)
+            WHERE src.id IS NOT NULL
+              AND src.aspects_json IS NOT NULL
+              AND src.aspects_json <> '[]';
         """
+        self._execute_etl_step("stg_comment_aspects_creation", staging_query)
 
-        self._execute_etl_step("comment_aspects", query)
+        # ۲. اینسرت نهایی در پستگرس
+        insert_query = """
+            CALL postgres_execute('pg', '
+                INSERT INTO comment_aspects (
+                    comment_id, term, sentiment, negative_pct, neutral_pct, positive_pct
+                )
+                SELECT
+                    src.comment_id, src.term, src.sentiment, src.negative_pct, src.neutral_pct, src.positive_pct
+                FROM stg_comment_aspects AS src
+                INNER JOIN comments AS c ON c.id = src.comment_id
+                ON CONFLICT DO NOTHING;
+            ');
+        """
+        self._execute_etl_step("comment_aspects_insert", insert_query)
+
+        # ۳. پاکسازی
+        self.con.sql("DROP TABLE IF EXISTS pg.stg_comment_aspects;")
         
 
     def sync_sequences(self):

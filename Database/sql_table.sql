@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS sessions (
     session_id VARCHAR(100) PRIMARY KEY,
-    user_id BIGINT REFERENCES users(user_id),
-    city_id INT REFERENCES cities(city_id)
+    user_id BIGINT REFERENCES users(user_id)  ON DELETE CASCADE,
+    city_id INT REFERENCES cities(city_id)ON DELETE SET NULL
 );
 
 
@@ -55,8 +55,8 @@ CREATE TABLE IF NOT EXISTS products (
     min_price_last_month BIGINT,
     is_fake BOOLEAN DEFAULT FALSE,
     rate DOUBLE PRECISION,
-    rate_cnt BIGINT,
-    vector_title VECTOR(768)
+    rate_cnt BIGINT
+    
 );
  
 
@@ -84,9 +84,17 @@ CREATE TABLE IF NOT EXISTS comments (
     dislikes INT DEFAULT 0,
     raw_text_normalized TEXT,
                                
-    created_at TIMESTAMPTZ ,   
-    embedded_comment  VECTOR(768)                             
+    created_at TIMESTAMPTZ 
+    -- embedded_comment  VECTOR(768)                             
 );
+
+CREATE TABLE IF NOT EXISTS comments_embedding (
+     id BIGINT PRIMARY KEY REFERENCES comments(id) ON DELETE CASCADE,
+    embedded_comment  VECTOR(768)  
+); 
+
+
+
 
 CREATE TABLE IF NOT EXISTS comment_aspects (
     aspect_id BIGSERIAL PRIMARY KEY,
