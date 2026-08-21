@@ -7,7 +7,6 @@ CREATE SCHEMA IF NOT EXISTS kpi;
 -- ============================================================
 -- 1. GLOBAL EXECUTIVE FUNNEL (دیدگاه کلان برای مدیر)
 -- پاسخ به سوالات آماری: نرخ تبدیل کل سایت چقدر است؟
--- منبع الهام: کدهای پایتون بخش Funnel KPIs
 -- ============================================================
 CREATE OR REPLACE VIEW kpi.global_funnel AS
 SELECT
@@ -23,9 +22,9 @@ SELECT
     ROUND((SUM(total_removes)::NUMERIC / NULLIF(SUM(total_cart_adds), 0)) * 100, 2) AS cart_abandonment_pct
 FROM analytics.feature_time;
 
+
 -- ============================================================
 -- 2. PRODUCT 360 & ACTIONABLE INSIGHTS (مغز متفکر ایجنت)
--- پاسخ به سوالات هیبریدی: چرا فلان محصول فروش نمی‌رود؟ چه کنیم؟
 -- ترکیب رفتار کاربر + فروش + تحلیل احساسات (ABSA)
 -- ============================================================
 CREATE OR REPLACE VIEW kpi.product_360 AS
@@ -59,10 +58,9 @@ FROM analytics.feature_product p
 JOIN public.products rp ON p.product_id = rp.id
 LEFT JOIN analytics.feature_product_sentiment ps ON p.product_id = ps.product_id;
 
+
 -- ============================================================
 -- 3. USER RFM & SEGMENTATION (بخش‌بندی مشتریان)
--- پاسخ به سوالات: مشتریان وفادار کیستند؟ چه کسانی در حال ریزش هستند؟
--- منبع الهام: کدهای پایتون بخش User Segmentation
 -- ============================================================
 CREATE OR REPLACE VIEW kpi.user_segments AS
 SELECT
@@ -86,9 +84,9 @@ SELECT
 
 FROM analytics.feature_user;
 
+
 -- ============================================================
 -- 4. BRAND & CATEGORY DIAGNOSTICS (عملکرد برندها)
--- پاسخ به سوالات: کدام برند بیشترین محبوبیت و فروش را دارد؟
 -- ============================================================
 CREATE OR REPLACE VIEW kpi.brand_diagnostics AS
 SELECT
@@ -106,10 +104,9 @@ FROM analytics.feature_brand b
 JOIN public.brands rb ON b.brand_id = rb.brand_id
 LEFT JOIN analytics.feature_brand_sentiment bs ON b.brand_id = bs.brand_id;
 
+
 -- ============================================================
 -- 5. ROOT CAUSE ANALYSIS - ASPECTS (علت‌یابی ریشه‌ای)
--- پاسخ به سوالات: چرا مردم ناراضی‌اند؟ (باتری، قیمت، بو؟)
--- این ویو مستقیماً برای موتور فیلترینگ ایجنت استفاده می‌شود
 -- ============================================================
 CREATE OR REPLACE VIEW kpi.aspect_diagnostics AS
 SELECT
@@ -128,5 +125,5 @@ SELECT
     END AS aspect_status
 
 FROM analytics.feature_aspect
-WHERE total_mentions > 5 -- حذف نویزها (ویژگی‌هایی که کمتر از ۵ بار تکرار شده‌اند)
+WHERE total_mentions > 5 -- حذف نویزها
 ORDER BY total_mentions DESC;
