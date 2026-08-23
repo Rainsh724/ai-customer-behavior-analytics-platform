@@ -4,7 +4,7 @@ import time
 from multiprocessing import Pool, cpu_count
 import pandas as pd
 
-project_root = Path(__file__).resolve().parent
+project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root))
 
 from src.structured_cleaner import EcomDataCleaner

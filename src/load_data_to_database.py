@@ -22,7 +22,7 @@ class ProjectConfig:
     # PostgreSQL Connection Settings
     DB_NAME = os.getenv("DB_NAME", "ai_project")
     DB_USER = os.getenv("DB_USER", "postgres")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "zynb1223")
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = os.getenv("DB_PORT", "5432")
 
@@ -488,31 +488,9 @@ class DuckDBETLLoader:
             logging.info("اتصال DuckDB بسته شد.")
 
 
-# if __name__ == "__main__":
-#     loader = DuckDBETLLoader()
-#     loader.run()
-
-
-
-
-# برای لود کامنت فقط
-# if __name__ == "__main__":
-#     loader = DuckDBETLLoader()
-
-#     try:
-#         loader.load_comments()
-#     finally:
-#         loader.con.close()
-#         logging.info("اتصال DuckDB بسته شد.")
-
-
 if __name__ == "__main__":
     loader = DuckDBETLLoader()
+    loader.run()
 
-    try:
-        loader.load_comments()
-        loader.load_comment_aspects()
-        
-    finally:
-        loader.con.close()
-        logging.info("اتصال DuckDB بسته شد.")
+
+
