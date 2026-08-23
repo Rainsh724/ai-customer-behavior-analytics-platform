@@ -113,8 +113,25 @@ def _validate_sql(sql: str) -> str | None:
     return None
 
 
-def _generate_sql(question: str, prior_error: str | None = None, prior_sql: str | None = None) -> dict[str, Any]:
+def _generate_sql(
+    question: str,
+    prior_error: str | None = None,
+    prior_sql: str | None = None,
+    wants_chart: bool = False,
+) -> dict[str, Any]:
     user_prompt = f"سوال کاربر: {question}"
+    if wants_chart:
+        # کاربر از ما نمودار هم خواسته (state["wants_chart"] در query_router
+        # ست شده -- نگاه کن به bi_agent.py). این‌جا هنوز نمی‌دونیم bi_planner
+        # چه chart_type ای انتخاب می‌کنه (bi_planner بعد از sql_agent اجرا
+        # می‌شه)، فقط می‌خوایم SQL به‌جای یک عدد تکی، یک نتیجه‌ی گروه‌بندی‌شده
+        # و "چارت‌پسند" برگردونه تا bi_builder چیزی برای رسم داشته باشه.
+        user_prompt += (
+            "\n\nنکته: کاربر می‌خواد از این داده یک نمودار هم ساخته بشه. "
+            "پس ترجیحاً خروجی رو GROUP BY کن (مثلاً بر اساس زمان/دسته/برند/"
+            "محصول) تا چند ردیف قابل‌نمودار برگرده، نه یک عدد تکی -- مگر "
+            "این‌که خودِ سوال صریحاً یک عدد واحد بخواد."
+        )
     if prior_error and prior_sql:
         user_prompt += (
             f"\n\nتلاش قبلی رد شد. SQL قبلی:\n{prior_sql}\n"
@@ -128,11 +145,12 @@ def sql_agent(state: GraphState) -> dict[str, Any]:
     if not question.strip():
         return {"sql_query": "", "sql_result": {}, "errors": ["sql_agent: empty question"]}
 
+    wants_chart = bool(state.get("wants_chart"))
     last_sql = ""
     last_error: str | None = None
 
     for attempt in range(MAX_REPAIR_ATTEMPTS + 1):
-        llm_out = _generate_sql(question, prior_error=last_error, prior_sql=last_sql)
+        llm_out = _generate_sql(question, prior_error=last_error, prior_sql=last_sql, wants_chart=wants_chart)
         sql = (llm_out.get("sql") or "").strip()
         last_sql = sql
 

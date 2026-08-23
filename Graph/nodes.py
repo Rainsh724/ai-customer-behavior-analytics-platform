@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import re
 from typing import Any, Callable
 
 from .state import GraphState
@@ -10,6 +11,10 @@ from .sql_agent import sql_agent as _real_sql_agent
 from .vector_retriever import (
     retrieval_planner as _real_retrieval_planner,
     vector_retriever as _real_vector_retriever,
+)
+from .bi_agent import (
+    bi_planner as _real_bi_planner,
+    bi_builder as _real_bi_builder,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,17 +84,41 @@ def question_analyzer(state: GraphState) -> dict[str, Any]:
 # 2. QUERY ROUTER
 # ============================================================
 
+# کلیدواژه‌های فارسی/انگلیسی‌ای که نشون می‌دن کاربر علاوه بر جواب، یک
+# نمودار/داشبورد هم خواسته. مثل route فعلی (که هنوز rule-based و placeholder
+# هست، نه LLM)، این هم یک قانون ساده‌ست تا با یک LLM classifier واقعی
+# جایگزین بشه -- نکته‌ی مهم اینه که وابسته به `route` نیست و کاملاً orthogonal
+# تصمیم‌گیری می‌شه، دقیقاً همون‌جایی (query_router) که کاربر ازمون سوال
+# می‌پرسه.
+_CHART_KEYWORDS = re.compile(
+    r"(نمودار|چارت|گراف|دیاگرام|رسم\s*کن|پلات|داشبورد|نمایش\s*بده|بکش|"
+    r"chart|graph|plot|dashboard|visuali[sz]e)",
+    re.IGNORECASE,
+)
+
+
+def _detect_wants_chart(question: str) -> bool:
+    return bool(_CHART_KEYWORDS.search(question or ""))
+
+
 @safe_node("query_router")
 def query_router(state: GraphState) -> dict[str, Any]:
     """
-    Decide:
-        sql
-        rag
-        hybrid
+    Decide (در یک مرحله):
+        1. route:  sql | rag | hybrid          -- داده از کجا میاد
+        2. wants_chart: bool                    -- آیا BI/نمودار هم لازمه
 
-    Later this can use an LLM with structured output.
+    این دو تصمیم عمداً orthogonal ان: `route` می‌گه چطور شواهد جمع بشه،
+    `wants_chart` می‌گه آیا علاوه بر جواب روایی، یک نمودار/داشبورد هم باید
+    ساخته بشه. bi_planner/bi_builder (در bi_agent.py) دقیقاً به همین
+    `wants_chart` گوش می‌دن و بعد از هر سه‌ی sql/rag/hybrid فعال می‌شن --
+    یعنی BI با هر سه مسیر "ترکیب" می‌شه بدون این‌که route چهارمی لازم باشه.
+
+    Later this can use an LLM with structured output (هم برای route هم
+    برای wants_chart، در همون یک تماس).
     """
 
+    question = state.get("question", "")
     intent = state.get("intent", "")
 
     # Temporary rule-based placeholder
@@ -102,8 +131,14 @@ def query_router(state: GraphState) -> dict[str, Any]:
     else:
         route = "hybrid"
 
+    wants_chart = _detect_wants_chart(question)
+
     return {
-        "route": route
+        "route": route,
+        "wants_chart": wants_chart,
+        # final_join باید بدونه چند شاخه منتظر بمونه: بدون نمودار فقط
+        # زنجیره‌ی روایتی (۱)، با نمودار هم روایت هم BI (۲).
+        "bi_expected_legs": 2 if wants_chart else 1,
     }
 
 
@@ -145,7 +180,8 @@ def hybrid_planner(state: GraphState) -> dict[str, Any]:
 @safe_node("sql_agent")
 def sql_agent(state: GraphState) -> dict[str, Any]:
     """Real implementation: LLM-generated SQL, validated, run read-only
-    against Postgres. See sql_agent.py."""
+    against Postgres. See sql_agent.py. (چارت‌پسند شدن خروجی وقتی
+    wants_chart=True هم همون‌جا مدیریت می‌شه.)"""
     return _real_sql_agent(state)
 
 
@@ -300,6 +336,12 @@ def evidence_normalizer(state: GraphState) -> dict[str, Any]:
     Rebuilds the full list from current state on every call — see the
     comment on `structured_evidence` in state.py for why this field must
     NOT use an additive reducer.
+
+    این نود، صرف‌نظر از این‌که سوال از کدوم route (sql/rag/hybrid) اومده،
+    نقطه‌ی تلاقی همیشگی همه‌شونه -- به همین دلیل در graph.py دقیقاً از
+    همین‌جا شاخه‌ی BI (bi_planner) هم فعال می‌شه: هر داده‌ای که تا این‌جا
+    جمع شده (sql_result / aspect_statistics / qualitative_evidence) برای
+    ساخت نمودار هم در دسترسه.
     """
 
     evidence = []
@@ -404,6 +446,51 @@ def join_wait(state: GraphState) -> dict[str, Any]:
 
 
 # ============================================================
+# 14b. BI PLANNER / BUILDER (نمودار و داشبورد)
+# ============================================================
+# فقط وقتی state["wants_chart"] True باشه، graph.py این دو نود رو (به‌صورت
+# موازی با evidence_fusion -> insight_generator) بعد از evidence_normalizer
+# فعال می‌کنه. جزئیات واقعی در bi_agent.py.
+
+@safe_node("bi_planner")
+def bi_planner(state: GraphState) -> dict[str, Any]:
+    """Real implementation: LLM chart_request رو از سوال + شکل داده‌ی
+    موجود (sql_result / aspect_statistics) می‌سازه. See bi_agent.py."""
+    return _real_bi_planner(state)
+
+
+@safe_node("bi_builder")
+def bi_builder(state: GraphState) -> dict[str, Any]:
+    """Real implementation: Agent (نه LLM) که chart_request رو به یک یا
+    چند chart_spec واقعی (dashboard) تبدیل می‌کنه. See bi_agent.py."""
+    return _real_bi_builder(state)
+
+
+# ============================================================
+# 14c. FINAL JOIN BARRIER (روایت + BI)
+# ============================================================
+# insight_generator (انتهای زنجیره‌ی روایت) و bi_builder (انتهای زنجیره‌ی
+# BI) طول متفاوتی دارن، پس ممکنه در سوپراستپ‌های متفاوت اجرا بشن. دقیقاً
+# همون الگوی hybrid_join/join_wait، اما تعداد شاخه‌های موردانتظار ثابت
+# نیست: وقتی wants_chart=False فقط ۱ شاخه (insight_generator) داریم، وقتی
+# True دو شاخه. مقدار موردانتظار در state["bi_expected_legs"] (که
+# query_router ست کرده) نگه‌داری می‌شه -- نه یک ثابت مثل
+# EXPECTED_PARALLEL_BRANCHES، چون این‌جا تعداد شاخه‌ها per-run فرق می‌کنه.
+
+@safe_node("final_join")
+def final_join(state: GraphState) -> dict[str, Any]:
+    return {"final_arrivals": 1}
+
+
+@safe_node("final_wait")
+def final_wait(state: GraphState) -> dict[str, Any]:
+    """Dead end on purpose: شاخه‌ای (روایت یا BI) که زودتر برسه این‌جا
+    متوقف می‌شه؛ فقط شاخه‌ای که barrier رو تکمیل می‌کنه به answer_validator
+    ادامه می‌ده. بدون outgoing edge."""
+    return {}
+
+
+# ============================================================
 # 15. ANSWER VALIDATOR
 # ============================================================
 
@@ -417,6 +504,12 @@ def answer_validator(state: GraphState) -> dict[str, Any]:
         - correlation vs causation
         - time consistency
         - evidence sufficiency
+
+    نمودار/داشبورد (اگه ساخته شده باشه) از قبل در state["chart_spec"] /
+    state["dashboard"] هست (bi_builder نوشتتش) و چون LangGraph فیلدهای
+    ننوشته‌شده رو دست‌نخورده نگه می‌داره، خودبه‌خود در خروجی نهایی می‌مونه.
+    این‌جا فقط یک پرچم خلاصه به validation اضافه می‌کنیم تا مصرف‌کننده‌ی
+    final_answer بدونه آیا نموداری هم همراهش هست یا نه.
     """
 
     return {
@@ -424,6 +517,7 @@ def answer_validator(state: GraphState) -> dict[str, Any]:
             "grounded": True,
             "confidence": "unknown",
             "warnings": state.get("errors", []),
+            "has_chart": bool(state.get("chart_spec")),
         },
         "final_answer": state.get("insight", "")
     }

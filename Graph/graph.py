@@ -23,6 +23,10 @@ from .nodes import (
     evidence_normalizer,
     evidence_fusion,
     insight_generator,
+    bi_planner,
+    bi_builder,
+    final_join,
+    final_wait,
     answer_validator,
 )
 
@@ -102,6 +106,38 @@ def join_router(state: GraphState) -> str:
     return "wait"
 
 
+def route_after_evidence_normalizer(state: GraphState) -> str | list[str]:
+    """
+    evidence_normalizer is the convergence point for EVERY combination of
+    route/hybrid_mode (sql-only, rag-only, hybrid-sequential,
+    hybrid-parallel-via-join). This is exactly where the BI branch fans
+    out from, so that "BI" ends up combined with all three routes instead
+    of needing its own copy of sql_agent/vector_retriever.
+
+    Returns a LIST (fan-out, same technique as route_hybrid_mode) when a
+    chart was requested, so the narrative branch (evidence_fusion) and the
+    BI branch (bi_planner) both launch in the same superstep. Returns a
+    single label otherwise.
+    """
+    if state.get("wants_chart"):
+        return ["fusion", "bi"]
+    return "fusion"
+
+
+def final_join_router(state: GraphState) -> str:
+    """
+    Only let the leg that COMPLETES the final barrier continue to
+    answer_validator. Mirrors join_router, but the expected arrival count
+    is dynamic (state["bi_expected_legs"], set by query_router) instead of
+    a fixed constant: 1 leg (just the narrative) when no chart was
+    requested, 2 legs (narrative + BI) when one was.
+    """
+    expected = state.get("bi_expected_legs", 1)
+    if state.get("final_arrivals", 0) >= expected:
+        return "proceed"
+    return "wait"
+
+
 # ============================================================
 # BUILD GRAPH
 # ============================================================
@@ -129,6 +165,10 @@ def build_graph():
     builder.add_node("evidence_normalizer", evidence_normalizer)
     builder.add_node("evidence_fusion", evidence_fusion)
     builder.add_node("insight_generator", insight_generator)
+    builder.add_node("bi_planner", bi_planner)
+    builder.add_node("bi_builder", bi_builder)
+    builder.add_node("final_join", final_join)
+    builder.add_node("final_wait", final_wait)
     builder.add_node("answer_validator", answer_validator)
 
     # ========================================================
@@ -140,6 +180,9 @@ def build_graph():
 
     # ========================================================
     # ROUTE: SQL / RAG / HYBRID
+    # (wants_chart از همین‌جا -- در query_router -- روی state ست می‌شه؛
+    # خودش اینجا تاثیری در انتخاب مسیر نداره، فقط بعداً در
+    # route_after_evidence_normalizer خونده می‌شه.)
     # ========================================================
 
     builder.add_conditional_edges(
@@ -237,12 +280,61 @@ def build_graph():
     )
 
     # ========================================================
+    # BI FAN-OUT (نمودار/داشبورد)
+    #
+    # evidence_normalizer نقطه‌ی تلاقی هر ترکیبی از sql/rag/hybrid هست، پس
+    # دقیقاً همون‌جا بهترین جای شاخه‌شدن به سمت BI ـه: هر داده‌ای که تا
+    # این‌جا جمع شده (sql_result / aspect_statistics / qualitative_evidence)
+    # برای هم روایت هم نمودار در دسترسه.
+    #
+    # بدون نمودار: فقط "fusion" -> evidence_fusion (رفتار قبلی، بدون تغییر).
+    # با نمودار:   هم "fusion" هم "bi" در همون سوپراستپ فعال می‌شن (fan-out،
+    #              دقیقاً همون تکنیک route_hybrid_mode) -- یعنی زنجیره‌ی
+    #              روایت (evidence_fusion -> insight_generator) و زنجیره‌ی
+    #              BI (bi_planner -> bi_builder) موازی اجرا می‌شن.
+    # ========================================================
+
+    builder.add_conditional_edges(
+        "evidence_normalizer",
+        route_after_evidence_normalizer,
+        {
+            "fusion": "evidence_fusion",
+            "bi": "bi_planner",
+        }
+    )
+
+    builder.add_edge("evidence_fusion", "insight_generator")
+    builder.add_edge("bi_planner", "bi_builder")
+
+    # ========================================================
+    # FINAL JOIN BARRIER (روایت + BI)
+    #
+    # insight_generator و bi_builder به‌جای رفتن مستقیم به answer_validator
+    # (که وقتی طول دو زنجیره فرق داره، دقیقاً همون باگ "دوبار اجرا شدن"ی
+    # می‌شد که hybrid_join بالاتر برای sql/rag حلش کرده)، از final_join رد
+    # می‌شن. IMPORTANT: مثل sql_diagnosis، insight_generator و bi_builder هم
+    # نباید هم‌زمان یک add_edge مستقیم به answer_validator داشته باشن --
+    # فقط از طریق final_join.
+    # ========================================================
+
+    builder.add_edge("insight_generator", "final_join")
+    builder.add_edge("bi_builder", "final_join")
+
+    builder.add_conditional_edges(
+        "final_join",
+        final_join_router,
+        {
+            "proceed": "answer_validator",
+            "wait": "final_wait",
+        }
+    )
+    # final_wait deliberately has no outgoing edge — it's where the leg
+    # that arrives first stops (mirrors join_wait above).
+
+    # ========================================================
     # FINAL PIPELINE
     # ========================================================
 
-    builder.add_edge("evidence_normalizer", "evidence_fusion")
-    builder.add_edge("evidence_fusion", "insight_generator")
-    builder.add_edge("insight_generator", "answer_validator")
     builder.add_edge("answer_validator", END)
 
     # ========================================================
