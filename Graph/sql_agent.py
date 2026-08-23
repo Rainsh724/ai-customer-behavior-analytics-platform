@@ -54,8 +54,12 @@ user_behavior_logs(log_id PK, session_id FK->sessions.session_id,
 
 comments(id BIGINT PK, product_id FK->products.id, is_buyer BOOLEAN,
          rate DOUBLE PRECISION, recommendation_status TEXT, likes INT, dislikes INT,
-         raw_text_normalized TEXT, created_at TIMESTAMPTZ,
-         embedded_comment VECTOR)  -- برای RAG استفاده میشه، توی SQL دستکاریش نکن
+         raw_text_normalized TEXT, created_at TIMESTAMPTZ)
+         -- توجه: embedding کامنت‌ها این‌جا نیست، جدول جدای comments_embedding را ببین.
+
+comments_embedding(id BIGINT PK/FK->comments.id, embedded_comment VECTOR(768))
+                    -- این جدول فقط برای RAG/similarity search استفاده می‌شه،
+                    -- در SQL تحلیلی معمولی بهش نیازی نداری.
 
 comment_aspects(aspect_id PK, comment_id FK->comments.id, term TEXT,
                  sentiment TEXT, negative_pct DOUBLE, neutral_pct DOUBLE, positive_pct DOUBLE)
@@ -64,6 +68,7 @@ comment_aspects(aspect_id PK, comment_id FK->comments.id, term TEXT,
 ALLOWED_TABLES = {
     "products", "brands", "categories", "sellers", "users", "cities",
     "sessions", "user_behavior_logs", "comments", "comment_aspects",
+    "comments_embedding",
 }
 
 FORBIDDEN_KEYWORDS = re.compile(

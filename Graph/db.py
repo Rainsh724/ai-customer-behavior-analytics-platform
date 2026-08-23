@@ -37,7 +37,7 @@ class DBConfig:
     POOL_MIN_CONN = int(os.getenv("PG_POOL_MIN", "1"))
     POOL_MAX_CONN = int(os.getenv("PG_POOL_MAX", "10"))
 
-    EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
+    EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))  # matches comments_embedding.embedded_comment VECTOR(768)
 
 
 _pool: ThreadedConnectionPool | None = None
@@ -113,12 +113,13 @@ def vector_similarity_search(
             c.raw_text_normalized,
             c.created_at,
             p.title_fa                AS product_title,
-            (c.embedded_comment <=> %s::vector) AS distance
+            (ce.embedded_comment <=> %s::vector) AS distance
         FROM comments c
+        JOIN comments_embedding ce ON ce.id = c.id
         JOIN products p ON p.id = c.product_id
-        WHERE c.embedded_comment IS NOT NULL
+        WHERE ce.embedded_comment IS NOT NULL
         {("AND " + where_sql) if where_sql else ""}
-        ORDER BY c.embedded_comment <=> %s::vector
+        ORDER BY ce.embedded_comment <=> %s::vector
         LIMIT %s;
     """
     params = (embedding_literal, *where_params, embedding_literal, top_k)
