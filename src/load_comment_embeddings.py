@@ -12,9 +12,9 @@ from tqdm import tqdm
 class ProjectConfig:
     BASE_DIR = Path(__file__).resolve().parent.parent
     EMBEDDED_COMMENTS_DIR = BASE_DIR / "Dataset" / "embedded_comments"
-    DB_NAME = os.getenv("DB_NAME", "ai_project")
+    DB_NAME = os.getenv("DB_NAME", "postgres")
     DB_USER = os.getenv("DB_USER", "postgres")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "zynb1223") 
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "HiddenPatern") 
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = os.getenv("DB_PORT", "5432")
     BATCH_SIZE = 1000
