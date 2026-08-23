@@ -20,15 +20,16 @@ class ProjectConfig:
     COMMENTS_DIR = DATASET_DIR / "absa_results_comments"
 
     # PostgreSQL Connection Settings
-    DB_NAME = os.getenv("DB_NAME", "postgres")
+    DB_NAME = os.getenv("DB_NAME", "ai_project")
     DB_USER = os.getenv("DB_USER", "postgres")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "HiddenPatern")
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "zynb1223")
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = os.getenv("DB_PORT", "5432")
 
     # DuckDB High-Performance Memory Limits
     DUCKDB_MEMORY_LIMIT = "6GB"
-    DUCKDB_THREADS = 8
+    DUCKDB_THREADS = 4
+
     @classmethod
     def get_pg_conn_str(cls) -> str:
         return (
