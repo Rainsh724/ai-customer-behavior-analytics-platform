@@ -1,167 +1,76 @@
 ## PATH: app/graph/state.py
+"""
+ساختار state برای معماری جدید: یک ایجنت ReAct با حلقه (agent <-> tools).
+
+این نسخه در مقایسه با نسخه‌ی قبلی (که هر مرحله‌ی تحلیل -- SQL/RAG/BI/
+fusion/validation -- یک نود جدا در گراف بود) عمداً خیلی کوچیک‌تره: چون
+دیگه گراف یک پایپ‌لاین ثابت نیست، بلکه یک "مدیر" (LLM) هست که خودش هر بار
+تصمیم می‌گیره کدوم ابزار رو صدا بزنه، نتیجه‌ی خام رو بخونه، و یا دوباره
+ابزار دیگه‌ای صدا بزنه یا جواب نهایی بده. تقریباً تمام "state" واقعی همین
+تاریخچه‌ی مکالمه (`messages`) هست -- هم حافظه‌ی چند-توری (چند سوال قبلی)
+و هم حافظه‌ی داخل یک اجرا (نتایج خام ابزارها) توی همین یک فیلد جا می‌شه.
+"""
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, TypedDict
 from operator import add
 
 
-# -----------------------------
-# Type aliases
-# -----------------------------
-
-Route = Literal["sql", "rag", "hybrid"]
-HybridMode = Literal["parallel", "sequential"]
-
-# نوع نمودار پیشنهادی برای BI. جدول ("table") هم به‌عنوان یک "چارت" حساب
-# می‌شه چون گاهی بهترین نمایش یک سوال، خودِ جدول دیتاست.
-ChartType = Literal["bar", "line", "pie", "area", "scatter", "table"]
-
-# BI از کدوم منبع داده باید بسازه: فقط SQL، فقط ABSA/کیفی، یا هر دو
-# (وقتی هم sql_result و هم aspect_statistics/aspect_trends موجود باشن،
-# مثلاً در حالت hybrid+BI -> یک داشبورد دو-نموداره).
-BIDataSource = Literal["sql", "absa", "both"]
-
-
-# -----------------------------
-# Main LangGraph State
-# -----------------------------
-
 class GraphState(TypedDict, total=False):
     # =============================
-    # User Input
+    # تاریخچه‌ی مکالمه -- فرمت OpenAI chat (system/user/assistant/tool)
     # =============================
-    question: str
+    # additive: هر بار که نود agent یا نود tools اجرا می‌شه، پیام(های)
+    # جدید رو به انتهای همین لیست اضافه می‌کنه، نه این‌که کل لیست رو
+    # بازنویسی کنه. حافظه‌ی چند-توری (سناریوی "چرا؟" که به سوال قبلی
+    # اشاره می‌کنه) هم دقیقاً با همین مکانیزم پیاده می‌شه: main.py تاریخچه‌ی
+    # قبلی رو به‌عنوان seed اولیه به همین فیلد می‌ده (نگاه کن به main.py).
+    messages: Annotated[list[dict[str, Any]], add]
 
     # =============================
-    # Question Analysis
+    # شمارنده‌ی دور Agent<->Tools -- برای جلوگیری از حلقه‌ی بی‌نهایت اگه
+    # LLM هی تصمیم بگیره دوباره ابزار صدا بزنه (مثلاً SQL هی خطا بده).
+    # عمداً additive نیست -- نود agent هر بار مقدار فعلی + ۱ رو می‌نویسه.
     # =============================
-    intent: str
-    entities: dict[str, Any]
-    metrics: list[str]
-    dimensions: list[str]
-    time_range: dict[str, Any]
-    analysis_goal: str
+    iterations: int
 
     # =============================
-    # Routing
+    # شمارنده‌ی دورهای متوالی‌ای که *همه‌ی* ابزارهای صدازده‌شده خطا دادن.
+    # مستقل از `iterations` است و محافظت زودتری می‌ده: مثلاً اگه SQL سه بار
+    # پشت‌سرهم (حتی با پارامترهای متفاوت) شکست بخوره، لازم نیست صبر کنیم
+    # تا به سقف کلی iterations برسیم -- همون‌جا جمع می‌کنیم. هر دور که
+    # tools_node اجرا می‌شه از نو محاسبه و overwrite می‌شه (نه additive):
+    # اگه این دور همه خطا بود +۱، وگرنه صفر می‌شه.
     # =============================
-    route: Route
-    hybrid_mode: HybridMode
-
-    # -----------------------------
-    # BI (نمودار/داشبورد) -- تصمیم‌گیری در همون لحظه‌ی query_router
-    # -----------------------------
-    # `wants_chart` مستقل از `route` است: `route` تعیین می‌کنه داده از کجا
-    # میاد (sql/rag/hybrid)، `wants_chart` تعیین می‌کنه علاوه بر جواب
-    # متنی، یک نمودار/داشبورد هم باید ساخته بشه یا نه. این یعنی BI به
-    # هر سه‌ی sql/rag/hybrid "ترکیب" می‌شه بدون این‌که نیاز به route چهارم
-    # یا نسخه‌ی دوم از sql_agent/vector_retriever باشه.
-    # نگاه کن به: nodes.py::query_router و bi_agent.py برای جزئیات.
-    wants_chart: bool
-
-    # تعداد شاخه‌هایی که باید به final_join برسن قبل از عبور به
-    # answer_validator: بدون BI فقط ۱ شاخه (insight_generator)، با BI
-    # دو شاخه (insight_generator + bi_builder). در query_router ست میشه.
-    bi_expected_legs: int
+    consecutive_tool_errors: int
 
     # =============================
-    # Execution Plan
+    # ردِ اجرای ابزارها -- برای ممیزی/لاگ (نه برای منطق تصمیم‌گیری گراف).
+    # هر بار tools_node یک یا چند ابزار اجرا می‌کنه، یک ورودی خلاصه (اسم
+    # ابزار، آرگومان‌ها، موفق/ناموفق) به این لیست اضافه می‌شه. validate_node
+    # از همین برای سنجش groundedness جواب نهایی استفاده می‌کنه.
     # =============================
-    execution_plan: dict[str, Any]
-
-    # =============================
-    # SQL Branch
-    # =============================
-    sql_query: str
-    sql_result: dict[str, Any]
-    sql_diagnosis: dict[str, Any]
+    tool_trace: Annotated[list[dict[str, Any]], add]
 
     # =============================
-    # Retrieval / ABSA Branch
+    # خروجی نهایی -- فقط وقتی پر می‌شه که LLM دیگه tool_call نخواسته
+    # (یا سقف iterations/consecutive_tool_errors رد شده و finalize
+    # مجبورش کرده جمع‌بندی کنه).
     # =============================
-    retrieval_plan: dict[str, Any]
-
-    metadata_filters: dict[str, Any]
-
-    aspect_statistics: dict[str, Any]
-
-    aspect_trends: dict[str, Any]
-
-    ranked_aspects: list[dict[str, Any]]
-
-    search_queries: dict[str, str]
-
-    # =============================
-    # RAG Results
-    # =============================
-    # NOTE: additive on purpose — future multi-hop retrieval nodes may each
-    # contribute a batch of documents in the same run.
-    retrieved_documents: Annotated[list[dict[str, Any]], add]
-
-    qualitative_evidence: Annotated[list[dict[str, Any]], add]
-
-    # =============================
-    # Unified Evidence
-    # =============================
-    # NOT additive: `evidence_normalizer` rebuilds this list from scratch
-    # every time it runs (it re-reads sql_result / aspect_statistics /
-    # qualitative_evidence from state). If this field were additive
-    # (Annotated[..., add]) and the node fires more than once in a single
-    # run (which happens on the "parallel" hybrid path, since the SQL leg
-    # reaches this node in fewer hops than the RAG leg), the same evidence
-    # would be duplicated. Plain override is what we actually want here.
-    structured_evidence: list[dict[str, Any]]
-
-    fused_evidence: list[dict[str, Any]]
-
-    # =============================
-    # BI (نمودار/داشبورد) -- خروجی
-    # =============================
-    # `chart_request`: خروجی bi_planner (چه نموداری، از کدوم منبع، با
-    # کدوم محورها). `chart_spec`: اولین/اصلی‌ترین نمودار ساخته‌شده توسط
-    # bi_builder. `dashboard`: لیست همه‌ی نمودارهایی که bi_builder ساخته
-    # (وقتی هم SQL هم ABSA موجوده -> بیشتر از یک عضو).
-    chart_request: dict[str, Any]
-    chart_spec: dict[str, Any]
-    dashboard: list[dict[str, Any]]
-
-    # =============================
-    # Final Reasoning
-    # =============================
-    insight: str
-
     final_answer: str
 
     # =============================
-    # Validation
+    # نتیجه‌ی نود validate -- یک بررسی نرم (soft) که جواب نهایی رو در برابر
+    # خلاصه‌ی tool_trace می‌سنجه؛ فقط برای ممیزی/لاگ است و جواب کاربر رو
+    # دستکاری نمی‌کنه. جبران بخشی از قابلیت ممیزی‌ایه که با حذف
+    # evidence_fusion/answer_validator نسخه‌ی پایپ‌لاین قبلی از دست رفت.
+    # نگاه کن به audit.py.
     # =============================
     validation: dict[str, Any]
 
     # =============================
-    # Debugging / Observability
+    # اشکال‌زدایی -- خطاهای هر ابزار هم به همین اضافه می‌شه (علاوه بر
+    # این‌که به‌صورت پیام "tool" با خطا به خودِ LLM هم برمی‌گرده، تا خودش
+    # تصمیم بگیره چطور اصلاح کنه).
     # =============================
     errors: Annotated[list[str], add]
-
-    # =============================
-    # Hybrid "parallel" join barrier
-    # =============================
-    # The SQL leg and the RAG leg of the "parallel" hybrid path have
-    # different hop counts, so they don't reach a shared downstream node in
-    # the same superstep. `hybrid_join` (see nodes.py) is a barrier node
-    # both legs route through; each arrival increments this counter via the
-    # additive reducer, and the graph only proceeds to evidence_normalizer
-    # once it reaches 2 (both legs done). This IS meant to be additive.
-    hybrid_arrivals: Annotated[int, add]
-
-    # =============================
-    # Final join barrier (narrative + BI)
-    # =============================
-    # همون الگوی hybrid_arrivals، اما برای نقطه‌ی پایانی گراف: شاخه‌ی
-    # روایت (evidence_fusion -> insight_generator) و شاخه‌ی BI
-    # (bi_planner -> bi_builder) طول متفاوتی دارن، پس ممکنه در سوپراستپ‌های
-    # متفاوت به هم برسن. هر دو به‌جای رفتن مستقیم به answer_validator، از
-    # final_join عبور می‌کنن؛ این شمارنده هر ورود رو جمع می‌زنه و فقط وقتی
-    # به bi_expected_legs برسه (۱ بدون BI، ۲ با BI) اجازه‌ی عبور به
-    # answer_validator داده می‌شه. دقیقاً همون باگی که hybrid_arrivals حلش
-    # کرده بود، اینجا هم بدون این شمارنده رخ می‌داد.
-    final_arrivals: Annotated[int, add]

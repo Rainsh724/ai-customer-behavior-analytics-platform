@@ -1,39 +1,86 @@
 ## PATH: app/main.py
 from __future__ import annotations
 
+from typing import Any
+
 from app.graph.graph import get_graph
-from app.graph.state import GraphState
+
+# ============================================================
+# پرامپت سیستمی Agent -- شخصیت "مدیر ارشد" طبق سند معماری.
+# ============================================================
+# نکات کلیدی که عمداً توی پرامپت گنجونده شده (هرکدوم مستقیم از یکی از
+# سناریوهای جدول سند میاد):
+#   - استفاده از حافظه‌ی مکالمه به‌جای صدا زدن دوباره‌ی ابزار (سناریوی "چرا؟")
+#   - وقتی هم داده‌ی عددی هم دلیل کیفی لازمه، هر دو ابزار رو در یک دور
+#     صدا بزنه (سناریوی اجرای موازی)
+#   - وقتی کاربر صریحاً نمودار/داشبورد خواسته، از tool_bi استفاده کنه
+#   - عدم اختراع رابطه‌ی علّی که در شواهد نیومده
+
+AGENT_SYSTEM_PROMPT = """
+تو مدیر ارشد (Agent) یک سیستم تحلیل هوشمند کسب‌وکار هستی که به مدیران
+یک فروشگاه آنلاین در تحلیل داده کمک می‌کنی. سه ابزار در اختیار داری:
+
+    tool_sql  -- داده‌ی عددی/آماری/KPI از دیتابیس
+    tool_rag  -- جست‌وجوی معنایی در نظرات مشتری‌ها (دلایل کیفی)
+    tool_bi   -- ساخت لینک فیلترشده‌ی داشبورد Power BI
+
+قوانین کار تو:
+
+۱. اول ببین آیا جواب از تاریخچه‌ی همین مکالمه (پیام‌ها و نتایج ابزارهای
+   قبلی) قابل استخراجه یا نه. اگه سوال کاربر ادامه/توضیح سوال قبلیه
+   (مثلاً فقط پرسیده "چرا؟")، و داده‌ی آماری لازم از قبل در همین مکالمه
+   موجوده، دیگه دوباره tool_sql رو صدا نزن -- مستقیم برو سراغ ابزاری که
+   جواب "چرا" رو می‌ده (معمولاً tool_rag).
+
+۲. اگه سوال هم به داده‌ی عددی هم به دلیل/احساس کیفی نیاز داره (مثلاً
+   "سود برند X و احساسات مردم درباره‌ش رو بگو")، هر دو ابزار (tool_sql و
+   tool_rag) رو در همون دور، هم‌زمان صدا بزن -- منتظر جواب یکی برای صدا
+   زدن اون‌یکی نمون.
+
+۳. برای سوالات آماری ساده، فقط tool_sql کافیه.
+
+۴. برای استدلال چندمرحله‌ای (مثلاً "چرا فروش افت کرده؟")، اول با tool_sql
+   افت رو تایید کن، بعد با tool_rag دنبال دلیل کیفی‌اش بگرد، و در جواب
+   نهایی این دو رو به هم ربط بده -- ولی هرگز رابطه‌ی علّی‌ای که مستقیم از
+   شواهد برنمیاد رو اختراع نکن؛ اگه شواهد کافی نبود صریح بگو.
+
+۵. اگه ابزاری خطا داد (مثلاً SQL نامعتبر یا داده‌ای پیدا نشد)، خودت
+   دوباره با پارامتر/توضیح اصلاح‌شده تلاش کن؛ کاربر نباید متوجه این
+   خطای داخلی بشه مگر واقعاً بعد از چند تلاش هم به داده‌ای نرسیدی.
+
+۶. فقط وقتی کاربر صریحاً نمودار/چارت/داشبورد/مصورسازی خواست از tool_bi
+   استفاده کن و لینک برگشتی رو مستقیم در جواب نهایی بیار.
+
+۷. جواب نهایی رو همیشه به فارسی، روان، و در قالب یک پاسخ انسانی و
+   مدیریتی بنویس -- نه دامپ خام JSON نتایج ابزارها.
+"""
 
 
-def run(question: str) -> GraphState:
+def run(question: str, history: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """
+    question: سوال جدید کاربر.
+    history:  تاریخچه‌ی پیام‌های مکالمه‌ی قبلی (خروجی result["messages"]
+              از تماس قبلی run())، برای پشتیبانی از حافظه‌ی چندتوری --
+              نگهداری واقعی این تاریخچه بین درخواست‌های HTTP (session/
+              Redis/دیتابیس) مسئولیت لایه‌ی API است، نه این تابع.
+    """
+    messages: list[dict[str, Any]] = list(history) if history else []
+
+    if not messages or messages[0].get("role") != "system":
+        messages.insert(0, {"role": "system", "content": AGENT_SYSTEM_PROMPT})
+
+    messages.append({"role": "user", "content": question})
+
     graph = get_graph()
-
-    initial_state: GraphState = {
-        "question": question,
-        "errors": [],
-    }
-
-    return graph.invoke(initial_state)
+    result = graph.invoke({"messages": messages, "iterations": 0})
+    return result
 
 
 def main() -> None:
-    # نمونه‌ی بدون درخواست نمودار (رفتار قبلی، بدون تغییر)
+    # نمونه‌ی تک‌توری
     result = run("چرا فروش محصول X در ماه جاری کاهش پیدا کرده؟")
-
     print("\nFINAL ANSWER:")
     print(result.get("final_answer"))
-
-    print("\nROUTE:")
-    print(result.get("route"))
-
-    print("\nHYBRID MODE:")
-    print(result.get("hybrid_mode"))
-
-    print("\nWANTS CHART:")
-    print(result.get("wants_chart"))
-
-    print("\nVALIDATION:")
-    print(result.get("validation"))
 
     errors = result.get("errors") or []
     if errors:
@@ -41,21 +88,17 @@ def main() -> None:
         for err in errors:
             print(f"  - {err}")
 
-    # نمونه‌ی BI: همون سوال، ولی این‌بار درخواست نمودار هم شده -- query_router
-    # علاوه بر route (sql/rag/hybrid)، wants_chart=True هم تشخیص می‌ده و
-    # graph.py بعد از evidence_normalizer به‌صورت موازی مسیر BI رو هم فعال
-    # می‌کنه.
-    bi_result = run("نمودار روند فروش محصول X در ۶ ماه اخیر رو نشون بده")
+    # نمونه‌ی چندتوری: سوال دوم ("چرا؟") با تاریخچه‌ی همون مکالمه ادامه
+    # پیدا می‌کنه -- طبق سند معماری، Agent باید بفهمه این ادامه‌ی سوال
+    # آماری قبلیه و دیگه دوباره tool_sql رو صدا نزنه.
+    followup = run("چرا؟", history=result.get("messages"))
+    print("\n\n--- سوال ادامه‌دار (حافظه‌ی چت) ---")
+    print(followup.get("final_answer"))
 
+    # نمونه‌ی BI
+    bi_result = run("نمودار فروش محصول X رو نشون بده")
     print("\n\n--- نمونه‌ی BI ---")
-    print("\nWANTS CHART:")
-    print(bi_result.get("wants_chart"))
-
-    print("\nCHART SPEC:")
-    print(bi_result.get("chart_spec"))
-
-    print("\nDASHBOARD:")
-    print(bi_result.get("dashboard"))
+    print(bi_result.get("final_answer"))
 
 
 if __name__ == "__main__":

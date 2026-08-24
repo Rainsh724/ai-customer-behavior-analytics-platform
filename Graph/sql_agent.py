@@ -1,17 +1,23 @@
 ## PATH: app/graph/sql_agent.py
 """
-پیاده‌سازی واقعی sql_agent -- جایگزین استاب فعلی در nodes.py.
+پیاده‌سازی واقعی Tool_SQL.
 
-مسئولیت "Agent" اینجا (که با "LLM" فرق داره -- توضیحش رو در پاسخ چت بخون):
+تفاوت با نسخه‌ی قبلی (پایپ‌لاین): قبلاً sql_agent یک نود گراف بود که کل
+`state["question"]` رو می‌گرفت. الان این یک تابع ابزارِ معمولی‌ست که
+Agent (نود مرکزی) صداش می‌زنه و بهش یک "data_need" مشخص و کوچیک می‌ده
+(نه لزوماً کل سوال کاربر -- ممکنه Agent یک زیرسوال دقیق‌تر بسازه، مثلاً
+در سناریوی استدلال چندمرحله‌ای اول یک data_need برای "روند فروش" می‌سازه).
+
+مسئولیت این تابع («Agent» به‌معنای کلاسیک، نه LLM):
     1. ساخت prompt با context اسکیمای واقعی دیتابیس
-    2. صدا زدن LLM برای گرفتن SQL (این تنها جایی‌ست که LLM درگیره)
+    2. صدا زدن LLM برای گرفتن SQL
     3. VALIDATE کردن خروجی LLM قبل از اجرا (LLM قابل‌اعتماد نیست!)
     4. اجرای SQL روی Postgres واقعی (از طریق db.py)
-    5. اگر خطا داد یا رد شد -> یک بار خودش رو با پیام خطا اصلاح کنه (self-repair loop)
-    6. برگردوندن نتیجه به فرمت GraphState (sql_query, sql_result)
-
-این تابع همون امضای سایر nodeها رو داره: GraphState -> dict[str, Any]
-و باید مثل بقیه با @safe_node("sql_agent") در nodes.py دکوریت بشه.
+    5. اگر خطا داد -> خودش یک بار (repair loop سبک، فقط برای خطای
+       نحوی/اسکیمایی) تلاش می‌کنه اصلاح کنه؛ اگه بازم شکست خورد، خطای
+       واقعی رو برمی‌گردونه تا خودِ Agent (LLM بالادست) در چرخه‌ی
+       self-correction سند معماری تصمیم بگیره -- دوباره با data_need
+       متفاوت صدا بزنه، یا از کاربر توضیح بیشتر بخواد.
 """
 from __future__ import annotations
 
@@ -21,15 +27,12 @@ from typing import Any
 
 from .db import run_readonly_query
 from .llm_client import call_llm_json
-from .state import GraphState
 
 logger = logging.getLogger(__name__)
 
 # ============================================================
 # SCHEMA CONTEXT -- دقیقاً همون جدول/ستون‌هایی که در
 # lod_data_to_database2.py پروژه‌ی اصلی بهشون INSERT می‌شه.
-# اینو به‌عنوان single source of truth نگه دار؛ اگه اسکیما عوض شد
-# فقط همینجا آپدیت کن.
 # ============================================================
 
 SCHEMA_CONTEXT = """
@@ -58,8 +61,7 @@ comments(id BIGINT PK, product_id FK->products.id, is_buyer BOOLEAN,
          -- توجه: embedding کامنت‌ها این‌جا نیست، جدول جدای comments_embedding را ببین.
 
 comments_embedding(id BIGINT PK/FK->comments.id, embedded_comment VECTOR(768))
-                    -- این جدول فقط برای RAG/similarity search استفاده می‌شه،
-                    -- در SQL تحلیلی معمولی بهش نیازی نداری.
+                    -- این جدول فقط برای RAG/similarity search استفاده می‌شه.
 
 comment_aspects(aspect_id PK, comment_id FK->comments.id, term TEXT,
                  sentiment TEXT, negative_pct DOUBLE, neutral_pct DOUBLE, positive_pct DOUBLE)
@@ -102,7 +104,6 @@ def _validate_sql(sql: str) -> str | None:
         return "کوئری باید با SELECT یا WITH شروع بشه."
     if FORBIDDEN_KEYWORDS.search(stripped):
         return "کوئری شامل کلمات/الگوهای غیرمجاز است (DDL/DML یا چند statement)."
-    # همه‌ی نام‌های جدول استفاده‌شده باید داخل ALLOWED_TABLES باشن
     used_tables = set(re.findall(r"\bFROM\s+(\w+)|\bJOIN\s+(\w+)", stripped, re.IGNORECASE))
     used_tables = {t for pair in used_tables for t in pair if t}
     unknown = used_tables - ALLOWED_TABLES
@@ -113,25 +114,8 @@ def _validate_sql(sql: str) -> str | None:
     return None
 
 
-def _generate_sql(
-    question: str,
-    prior_error: str | None = None,
-    prior_sql: str | None = None,
-    wants_chart: bool = False,
-) -> dict[str, Any]:
-    user_prompt = f"سوال کاربر: {question}"
-    if wants_chart:
-        # کاربر از ما نمودار هم خواسته (state["wants_chart"] در query_router
-        # ست شده -- نگاه کن به bi_agent.py). این‌جا هنوز نمی‌دونیم bi_planner
-        # چه chart_type ای انتخاب می‌کنه (bi_planner بعد از sql_agent اجرا
-        # می‌شه)، فقط می‌خوایم SQL به‌جای یک عدد تکی، یک نتیجه‌ی گروه‌بندی‌شده
-        # و "چارت‌پسند" برگردونه تا bi_builder چیزی برای رسم داشته باشه.
-        user_prompt += (
-            "\n\nنکته: کاربر می‌خواد از این داده یک نمودار هم ساخته بشه. "
-            "پس ترجیحاً خروجی رو GROUP BY کن (مثلاً بر اساس زمان/دسته/برند/"
-            "محصول) تا چند ردیف قابل‌نمودار برگرده، نه یک عدد تکی -- مگر "
-            "این‌که خودِ سوال صریحاً یک عدد واحد بخواد."
-        )
+def _generate_sql(data_need: str, prior_error: str | None = None, prior_sql: str | None = None) -> dict[str, Any]:
+    user_prompt = f"داده‌ی موردنیاز: {data_need}"
     if prior_error and prior_sql:
         user_prompt += (
             f"\n\nتلاش قبلی رد شد. SQL قبلی:\n{prior_sql}\n"
@@ -140,44 +124,47 @@ def _generate_sql(
     return call_llm_json(SYSTEM_PROMPT, user_prompt)
 
 
-def sql_agent(state: GraphState) -> dict[str, Any]:
-    question = state.get("question", "")
-    if not question.strip():
-        return {"sql_query": "", "sql_result": {}, "errors": ["sql_agent: empty question"]}
+def run_sql_tool(data_need: str) -> dict[str, Any]:
+    """
+    ورودی: توضیح فارسی و مشخصِ داده‌ی موردنیاز (چیزی که Agent در آرگومان
+    tool_sql فرستاده -- نگاه کن به tools.py).
+    خروجی: dict که مستقیم به‌صورت JSON در پیام "tool" به Agent برمی‌گرده؛
+    اگه کلید "error" داشته باشه، Agent می‌فهمه شکست خورده و می‌تونه
+    (طبق سند معماری) دوباره با data_need اصلاح‌شده صدا بزنه.
+    """
+    if not data_need or not data_need.strip():
+        return {"error": "data_need خالی بود."}
 
-    wants_chart = bool(state.get("wants_chart"))
     last_sql = ""
     last_error: str | None = None
 
     for attempt in range(MAX_REPAIR_ATTEMPTS + 1):
-        llm_out = _generate_sql(question, prior_error=last_error, prior_sql=last_sql, wants_chart=wants_chart)
+        llm_out = _generate_sql(data_need, prior_error=last_error, prior_sql=last_sql)
         sql = (llm_out.get("sql") or "").strip()
         last_sql = sql
 
         validation_error = _validate_sql(sql)
         if validation_error:
             last_error = validation_error
-            logger.warning("sql_agent: validation attempt %d failed: %s", attempt, validation_error)
+            logger.warning("run_sql_tool: validation attempt %d failed: %s", attempt, validation_error)
             continue
 
         try:
             rows = run_readonly_query(sql)
             return {
                 "sql_query": sql,
-                "sql_result": {
-                    "rows": rows,
-                    "row_count": len(rows),
-                    "explanation": llm_out.get("explanation", ""),
-                },
+                "rows": rows,
+                "row_count": len(rows),
+                "explanation": llm_out.get("explanation", ""),
             }
         except Exception as exc:  # noqa: BLE001
             last_error = str(exc)
-            logger.warning("sql_agent: execution attempt %d failed: %s", attempt, last_error)
+            logger.warning("run_sql_tool: execution attempt %d failed: %s", attempt, last_error)
             continue
 
-    # همه‌ی تلاش‌ها شکست خورد -- به‌جای crash، یک نتیجه‌ی خالی و خطای واضح برمی‌گردونیم
+    # حتی بعد از تلاش‌های داخلی هم شکست خورد -- این خطا رو (نه یک
+    # exception) برمی‌گردونیم تا به‌صورت پیام "tool" به خودِ Agent برسه.
     return {
-        "sql_query": last_sql,
-        "sql_result": {},
-        "errors": [f"sql_agent: failed after {MAX_REPAIR_ATTEMPTS + 1} attempts: {last_error}"],
+        "error": f"اجرای SQL بعد از {MAX_REPAIR_ATTEMPTS + 1} تلاش شکست خورد: {last_error}",
+        "last_attempted_sql": last_sql,
     }
