@@ -4,18 +4,20 @@
 calling، + یک dispatcher که اسم ابزار و آرگومان‌هاش (که از خروجی LLM
 می‌رسه) رو می‌گیره و پیاده‌سازی واقعی مربوطه رو صدا می‌زنه.
 
-این فایل تنها جایی‌ست که "شکل" ابزارها تعریف می‌شه؛ منطق واقعی هرکدوم در
-فایل خودش می‌مونه (sql_agent.py / vector_retriever.py / bi_agent.py) --
-دقیقاً همون تفکیک قبلی، فقط حالا این‌ها node نیستن بلکه tool function ان.
+نکته درباره‌ی description تکراری اسکیما: SCHEMA_CONTEXT فقط یک‌بار، در
+description ابزار tool_sql، کامل نوشته می‌شه. description ابزار tool_bi
+فقط یک ارجاع کوتاه بهش داره -- چون همه‌ی تعریف‌های ابزار (TOOL_DEFINITIONS)
+در یک تماس واحد به مدل داده می‌شن، مدل از قبل توی همون تماس اسکیما رو
+دیده؛ تکرار کاملش فقط توکن اضافه مصرف می‌کنه.
 """
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from .sql_agent import run_sql_tool
+from .sql_agent import run_sql_tool, SCHEMA_CONTEXT
 from .vector_retriever import run_rag_tool
-from .bi_agent import run_bi_tool
+from .bi_agent import run_bi_tool, VALID_CHART_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -27,21 +29,29 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "name": "tool_sql",
             "description": (
                 "داده‌های ساختاریافته و عددی (فروش، قیمت، تعداد نظرات، آمار KPI) "
-                "رو با یک کوئری SQL امن از دیتابیس محصولات/فروش/رفتار کاربر می‌گیره."
+                "رو از دیتابیس Postgres می‌گیره. خودت مستقیم یک کوئری SQL معتبر "
+                "(فقط SELECT یا WITH...SELECT) بر اساس اسکیمای زیر بنویس -- هیچ "
+                "مرحله‌ی میانی‌ای این کوئری رو برات نمی‌سازه.\n\n"
+                "قوانین اجباری:\n"
+                "- فقط SELECT/WITH؛ هیچ‌وقت INSERT/UPDATE/DELETE/DDL ننویس.\n"
+                "- فقط از جدول/ستون‌های اسکیمای زیر استفاده کن.\n"
+                "- همیشه LIMIT بذار (حداکثر ۲۰۰) مگر aggregate/COUNT باشه.\n"
+                "- فقط یک کوئری؛ چند statement با ; از هم جدا ننویس.\n"
+                "- تاریخ‌ها رو با NOW()/INTERVAL بساز، هاردکد نکن مگر کاربر "
+                "تاریخ دقیق داده باشه.\n"
+                "- برای خوندن متن نظرات یا جست‌وجوی معنایی از این ابزار استفاده "
+                "نکن -- اون کار tool_rag است.\n\n"
+                f"اسکیمای دیتابیس:\n{SCHEMA_CONTEXT}"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "data_need": {
+                    "sql": {
                         "type": "string",
-                        "description": (
-                            "توضیح دقیق فارسی از داده‌ای که لازم داری، نه لزوماً "
-                            "عین سوال کاربر (مثلاً 'فروش محصول X در سه ماه اخیر "
-                            "به تفکیک ماه')."
-                        ),
+                        "description": "متن کامل کوئری SQL (SELECT/WITH) که خودت بر اساس اسکیمای بالا نوشتی.",
                     }
                 },
-                "required": ["data_need"],
+                "required": ["sql"],
             },
         },
     },
@@ -50,24 +60,24 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "function": {
             "name": "tool_rag",
             "description": (
-                "جست‌وجوی معنایی در نظرات مشتری‌ها برای پیدا کردن دلایل کیفی/"
-                "احساسات پشت یک رفتار یا شکایت."
+                "جست‌وجوی معنایی ساده در متن نظرات مشتری‌ها برای پیدا کردن "
+                "دلایل کیفی/احساسات پشت یک رفتار یا شکایت. جست‌وجو بر اساس "
+                "نزدیکی معنایی (embedding) به search_topic روی ۲۰ نظر مرتبط‌تر "
+                "انجام می‌شه و نتیجه از قبل خلاصه شده (مضامین تکرارشونده + چند "
+                "نظر نماینده) برمی‌گرده -- نه ۲۰ نظر خام. اگه سوال مشخصاً به یک "
+                "محصول خاص اشاره داره، product_id همون محصول رو بده تا جست‌وجو "
+                "به نظرات همون محصول محدود بشه."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "search_topic": {
                         "type": "string",
-                        "description": "موضوع/سوالی که باید در نظرات جست‌وجو بشه.",
-                    },
-                    "aspect": {
-                        "type": ["string", "null"],
                         "description": (
-                            "اگه کاربر به یک جنبه‌ی خاص اشاره کرده (مثلاً باتری، "
-                            "قیمت، بسته‌بندی) اسمش رو اینجا بذار تا جست‌وجو "
-                            "فیلترشده و دقیق بشه؛ اگه سوال کلی و عمومی است "
-                            "(مثلاً 'چرا مردم از برند X شاکی هستند؟') null بذار "
-                            "تا جست‌وجوی آزاد روی کل نظرات انجام بشه."
+                            "موضوع/سوالی که باید در نظرات جست‌وجو بشه -- برای "
+                            "پیدا کردن دلایل نارضایتی، موضوع رو در همون جهت "
+                            "بنویس (مثلاً 'دلایل نارضایتی و شکایت از محصول X')، "
+                            "نه فقط اسم محصول به‌تنهایی."
                         ),
                     },
                     "product_id": {"type": ["integer", "null"]},
@@ -81,25 +91,38 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "function": {
             "name": "tool_bi",
             "description": (
-                "وقتی کاربر صریحاً نمودار/داشبورد/مصورسازی خواسته، یک لینک "
-                "فیلترشده و آماده‌کلیک از داشبورد Power BI می‌سازه."
+                "وقتی کاربر صریحاً نمودار/چارت/داشبورد/مصورسازی خواسته، یک "
+                "نمودار واقعی از داده‌ی دیتابیس می‌سازه و در سه فرمت آماده‌ی "
+                "رندر (Chart.js، ECharts، Plotly) برمی‌گردونه -- فرانت‌اند هرکدوم "
+                "از این سه کتابخانه رو استفاده کنه، مستقیم قابل‌استفاده‌ست.\n\n"
+                "خودت مستقیم یک کوئری SQL (دقیقاً با همون قوانین و اسکیمای "
+                "ابزار tool_sql) بنویس که داده‌ی نمودار رو برگردونه -- معمولاً "
+                "یک ستون برچسب/دسته (برای محور X) و یک ستون عددی (برای محور Y)، "
+                f"با GROUP BY مناسب. انواع مجاز chart_type: {sorted(VALID_CHART_TYPES)}."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "metric": {
+                    "sql": {
                         "type": "string",
-                        "description": "متریکی که باید نمایش داده بشه (مثلاً sales, rating, complaints, price).",
+                        "description": "کوئری SELECT که داده‌ی نمودار رو برمی‌گردونه (طبق قوانین/اسکیمای tool_sql).",
                     },
-                    "dimension": {
+                    "chart_type": {
+                        "type": "string",
+                        "enum": sorted(VALID_CHART_TYPES),
+                        "description": "نوع نمودار مناسب سوال کاربر.",
+                    },
+                    "title": {"type": ["string", "null"]},
+                    "x_field": {
                         "type": ["string", "null"],
-                        "description": "بعدی که باید بر اساسش تفکیک بشه (مثلاً product, brand, category, month).",
+                        "description": "نام ستونی از نتیجه‌ی sql که باید محور X/برچسب باشه؛ اگه ندی حدس زده می‌شه.",
                     },
-                    "product_id": {"type": ["integer", "null"]},
-                    "brand_id": {"type": ["integer", "null"]},
-                    "days_back": {"type": ["integer", "null"]},
+                    "y_field": {
+                        "type": ["string", "null"],
+                        "description": "نام ستونی از نتیجه‌ی sql که باید محور Y/مقدار باشه؛ اگه ندی حدس زده می‌شه.",
+                    },
                 },
-                "required": ["metric"],
+                "required": ["sql", "chart_type"],
             },
         },
     },
@@ -112,26 +135,25 @@ def execute_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     می‌گیره، پیاده‌سازی واقعی رو صدا می‌زنه، و همیشه یک dict برمی‌گردونه
     (حتی در خطا -- با کلید "error") تا هیچ‌وقت اجرای گراف با یک exception
     خام قطع نشه؛ خطا باید به‌صورت پیام "tool" به خودِ Agent برسه تا طبق
-    سند معماری (حلقه‌ی self-correction) خودش تصمیم بگیره.
+    سند معماری (حلقه‌ی self-correction) خودش تصمیم بگیره چطور اصلاح کنه.
     """
     try:
         if name == "tool_sql":
-            return run_sql_tool(data_need=arguments.get("data_need", ""))
+            return run_sql_tool(sql=arguments.get("sql", ""))
 
         if name == "tool_rag":
             return run_rag_tool(
                 search_topic=arguments.get("search_topic", ""),
-                aspect=arguments.get("aspect"),
                 product_id=arguments.get("product_id"),
             )
 
         if name == "tool_bi":
             return run_bi_tool(
-                metric=arguments.get("metric", ""),
-                dimension=arguments.get("dimension"),
-                product_id=arguments.get("product_id"),
-                brand_id=arguments.get("brand_id"),
-                days_back=arguments.get("days_back"),
+                sql=arguments.get("sql", ""),
+                chart_type=arguments.get("chart_type", "bar"),
+                title=arguments.get("title"),
+                x_field=arguments.get("x_field"),
+                y_field=arguments.get("y_field"),
             )
 
         return {"error": f"ابزار ناشناخته: {name}"}

@@ -2,107 +2,198 @@
 """
 پیاده‌سازی واقعی Tool_BI.
 
-تغییر مهم نسبت به نسخه‌ی قبلی: قبلاً bi_builder خودش از داده‌ی خام
-(sql_result/aspect_statistics) یک chart_spec/dashboard JSON می‌ساخت که
-قرار بود فرانت‌اند خودمون رندرش کنه. طبق سند معماری جدید، مصورسازی دیگه
-مسئولیت ما نیست -- Power BI از قبل این کار رو انجام می‌ده. کاری که این
-ابزار می‌کنه فقط ساختن یک **لینک فیلترشده و آماده‌کلیک** به یک گزارش/
-داشبورد از پیش ساخته‌شده در Power BI هست (بر اساس متریک/بعد/فیلترهایی که
-Agent از سوال کاربر استخراج کرده)، نه اجرای هیچ کوئری یا ساخت هیچ نموداری
-اینجا.
+تغییر بنیادی نسبت به نسخه‌ی قبلی: دیگه لینک Power BI نمی‌سازیم. نمودار
+مستقیم با کد پایتون از روی نتیجه‌ی یک کوئری SQL ساخته می‌شه.
 
-پیش‌نیاز پیکربندی (مثل db.py که به یک role/رمزعبور واقعی نیاز داشت):
-    POWERBI_BASE_EMBED_URL  -- پیش‌فرض: endpoint استاندارد reportEmbed
-    POWERBI_REPORT_ID       -- شناسه‌ی گزارش Power BI (باید از workspace
-                               واقعی گرفته بشه)
-    POWERBI_WORKSPACE_ID    -- شناسه‌ی workspace/group
+تصمیم فنی: بدون وابستگی به پکیج plotly.
+------------------------------------------------------------
+Chart.js و ECharts کتابخانه‌های جاوااسکریپت‌ان -- «پیاده‌سازی‌شون در
+پایتون» یعنی فقط ساختن همون JSON پیکربندی‌ای که خودشون در فرانت‌اند
+انتظار دارن، نه اجرای واقعی این کتابخانه‌ها در پایتون. حتی برای Plotly
+(که پکیج پایتونی هم داره)، خروجی نهایی‌ای که فرانت‌اند نیاز داره چیزی
+جز یک دیکشنری {"data":[...], "layout":{...}} نیست. پس به‌جای اضافه کردن
+یک وابستگی خارجی (plotly) فقط برای ساختن یک دیکشنری ساده، هر سه فرمت رو
+مستقیم و دستی از روی داده‌ی خام می‌سازیم -- سبک‌تر، بدون وابستگی، و
+قطعی‌تر برای تست.
 
-نگاشت metric/dimension به نام جدول/ستون در مدل داده‌ی Power BI
-(METRIC_FILTER_MAP) فعلاً placeholder با بهترین حدس از روی اسکیمای
-Postgres پروژه است -- باید با اسکیمای واقعی دیتاست Power BI (که معمولاً
-یک semantic model جداست، نه لزوماً هم‌نام با جداول Postgres) هماهنگ بشه.
+خروجی این ابزار هر سه فرمت رو هم‌زمان برمی‌گردونه (chartjs_config /
+echarts_option / plotly_figure) تا فرانت‌اند هرکدوم از این سه کتابخانه
+رو که استفاده می‌کنه، مستقیم بتونه بدون تبدیل اضافه رندرش کنه.
+
+مثل tool_sql، اینجا هم خودِ Agent مستقیم SQL می‌نویسه (نه یک زیرایجنت
+پنهان) -- description ابزار tool_bi فقط یک ارجاع کوتاه به قوانین/
+اسکیمای tool_sql داره (نه تکرار کامل SCHEMA_CONTEXT)، چون هر دو تعریف
+ابزار در یک تماس واحد به مدل داده می‌شن و مدل از قبل اون اسکیما رو در
+همون تماس دیده -- تکرارش فقط توکن اضافه مصرف می‌کنه.
 """
 from __future__ import annotations
 
 import logging
-import os
-from datetime import datetime, timedelta
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
-from urllib.parse import quote, urlencode
+
+from .sql_agent import run_sql_tool
 
 logger = logging.getLogger(__name__)
 
-POWERBI_BASE_EMBED_URL = os.getenv("POWERBI_BASE_EMBED_URL", "https://app.powerbi.com/reportEmbed")
-POWERBI_REPORT_ID = os.getenv("POWERBI_REPORT_ID", "")
-POWERBI_WORKSPACE_ID = os.getenv("POWERBI_WORKSPACE_ID", "")
-
-# TODO: این نگاشت رو با اسکیمای واقعی دیتاست Power BI هماهنگ کن.
-METRIC_LABELS = {
-    "sales": "فروش",
-    "rating": "امتیاز محصول",
-    "complaints": "شکایات/نظرات منفی",
-    "price": "قیمت",
-    "views": "بازدید",
-}
+VALID_CHART_TYPES = {"bar", "line", "pie", "scatter", "area"}
 
 
-def _build_filters(product_id: int | None, brand_id: int | None, days_back: int | None) -> list[str]:
-    filters: list[str] = []
+def _json_safe(value: Any) -> Any:
+    """psycopg2 مقادیر Decimal/date/datetime برمی‌گردونه که خودشون
+    مستقیم JSON-serializable نیستن؛ اینجا به float/رشته‌ی ISO تبدیل
+    می‌شن."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return value
 
-    if product_id:
-        filters.append(f"Products/ProductId eq {int(product_id)}")
 
-    if brand_id:
-        filters.append(f"Products/BrandId eq {int(brand_id)}")
+def _extract_labels_values(
+    rows: list[dict[str, Any]],
+    x_field: str | None,
+    y_field: str | None,
+) -> tuple[str, str, list[Any], list[Any]]:
+    if not rows:
+        raise ValueError("داده‌ای برای رسم نمودار برنگشت.")
 
-    if days_back:
-        cutoff = (datetime.utcnow() - timedelta(days=int(days_back))).strftime("%Y-%m-%d")
-        filters.append(f"Sales/Date ge {cutoff}")
+    columns = list(rows[0].keys())
 
-    return filters
+    if x_field not in columns:
+        # fallback: اولین ستونی که عددی نیست -> برچسب/دسته
+        x_field = next((c for c in columns if not isinstance(rows[0][c], (int, float, Decimal))), columns[0])
+
+    if y_field not in columns:
+        # fallback: اولین ستون عددیِ متفاوت از x_field
+        y_field = next(
+            (c for c in columns if c != x_field and isinstance(rows[0][c], (int, float, Decimal))),
+            None,
+        )
+
+    if y_field is None:
+        raise ValueError("ستون عددی مناسب برای محور Y پیدا نشد.")
+
+    labels = [_json_safe(row.get(x_field)) for row in rows]
+    values = [_json_safe(row.get(y_field)) for row in rows]
+    return x_field, y_field, labels, values
+
+
+# ============================================================
+# سه سازنده‌ی فرمت -- هرکدوم یک دیکشنری خالص پایتون، بدون هیچ import
+# خارجی. هر سه از روی همون labels/values ساخته می‌شن.
+# ============================================================
+
+def _build_chartjs_config(chart_type: str, title: str, x_field: str, y_field: str,
+                            labels: list[Any], values: list[Any]) -> dict[str, Any]:
+    config: dict[str, Any] = {
+        "type": chart_type if chart_type != "area" else "line",
+        "data": {
+            "labels": labels,
+            "datasets": [{
+                "label": title,
+                "data": values,
+                **({"fill": True} if chart_type == "area" else {}),
+            }],
+        },
+        "options": {
+            "plugins": {"title": {"display": True, "text": title}},
+        },
+    }
+    if chart_type not in ("pie",):
+        config["options"]["scales"] = {
+            "x": {"title": {"display": True, "text": x_field}},
+            "y": {"title": {"display": True, "text": y_field}},
+        }
+    return config
+
+
+def _build_echarts_option(chart_type: str, title: str, x_field: str, y_field: str,
+                            labels: list[Any], values: list[Any]) -> dict[str, Any]:
+    if chart_type == "pie":
+        return {
+            "title": {"text": title},
+            "series": [{
+                "type": "pie",
+                "data": [{"name": label, "value": value} for label, value in zip(labels, values)],
+            }],
+        }
+
+    echarts_type = "scatter" if chart_type == "scatter" else ("line" if chart_type in ("line", "area") else "bar")
+    series_entry: dict[str, Any] = {"type": echarts_type, "data": values}
+    if chart_type == "area":
+        series_entry["areaStyle"] = {}
+
+    return {
+        "title": {"text": title},
+        "xAxis": {"type": "category", "name": x_field, "data": labels},
+        "yAxis": {"type": "value", "name": y_field},
+        "series": [series_entry],
+    }
+
+
+def _build_plotly_figure(chart_type: str, title: str, x_field: str, y_field: str,
+                           labels: list[Any], values: list[Any]) -> dict[str, Any]:
+    if chart_type == "pie":
+        trace = {"type": "pie", "labels": labels, "values": values}
+        layout: dict[str, Any] = {"title": title}
+    elif chart_type in ("line", "area"):
+        trace = {"type": "scatter", "mode": "lines+markers", "x": labels, "y": values}
+        if chart_type == "area":
+            trace["fill"] = "tozeroy"
+        layout = {"title": title, "xaxis": {"title": x_field}, "yaxis": {"title": y_field}}
+    elif chart_type == "scatter":
+        trace = {"type": "scatter", "mode": "markers", "x": labels, "y": values}
+        layout = {"title": title, "xaxis": {"title": x_field}, "yaxis": {"title": y_field}}
+    else:  # bar (پیش‌فرض)
+        trace = {"type": "bar", "x": labels, "y": values}
+        layout = {"title": title, "xaxis": {"title": x_field}, "yaxis": {"title": y_field}}
+
+    return {"data": [trace], "layout": layout}
 
 
 def run_bi_tool(
-    metric: str,
-    dimension: str | None = None,
-    product_id: int | None = None,
-    brand_id: int | None = None,
-    days_back: int | None = None,
+    sql: str,
+    chart_type: str = "bar",
+    title: str | None = None,
+    x_field: str | None = None,
+    y_field: str | None = None,
 ) -> dict[str, Any]:
     """
-    ورودی: metric (اجباری)، دیگر آرگومان‌ها اختیاری -- همه از آرگومان‌های
-    tool_bi که Agent صدا زده میان (نگاه کن به tools.py).
-    خروجی: dict شامل دقیقاً یک لینک قابل‌کلیک؛ Agent این لینک رو مستقیم
-    در جواب نهایی به کاربر منتقل می‌کنه (طبق سند: "زمانی که کاربر نمودار
-    می‌خواهد، لینک قابل کلیک برایش ارسال می‌شود").
+    ورودی: sql (کوئری SELECT که خودِ Agent -- طبق همون قوانین tool_sql --
+    نوشته و داده‌ی نمودار رو برمی‌گردونه)، chart_type، و اختیاری
+    title/x_field/y_field (اگه ندی، از روی ستون‌های نتیجه حدس زده می‌شه).
+    خروجی: dict شامل هر سه فرمت (chartjs_config / echarts_option /
+    plotly_figure) -- مستقیم به‌صورت JSON در پیام "tool" به Agent
+    برمی‌گرده و از همون‌جا به کاربر/فرانت‌اند می‌رسه.
     """
-    if not metric or not metric.strip():
-        return {"error": "metric مشخص نشده."}
+    if chart_type not in VALID_CHART_TYPES:
+        logger.warning("run_bi_tool: chart_type نامعتبر '%s' -- fallback به 'bar'", chart_type)
+        chart_type = "bar"
 
-    if not POWERBI_REPORT_ID or not POWERBI_WORKSPACE_ID:
-        return {
-            "error": (
-                "POWERBI_REPORT_ID / POWERBI_WORKSPACE_ID تنظیم نشده. "
-                "این‌ها باید در متغیرهای محیطی سرویس مقداردهی بشن."
-            )
-        }
+    sql_result = run_sql_tool(sql)
+    if "error" in sql_result:
+        return {"error": f"داده‌ی نمودار قابل‌دریافت نبود: {sql_result['error']}"}
 
-    filters = _build_filters(product_id, brand_id, days_back)
+    rows = sql_result.get("rows") or []
+    if not rows:
+        return {"error": "کوئری هیچ ردیفی برای رسم نمودار برنگردوند."}
 
-    base_params = {
-        "reportId": POWERBI_REPORT_ID,
-        "groupId": POWERBI_WORKSPACE_ID,
-    }
-    link = f"{POWERBI_BASE_EMBED_URL}?{urlencode(base_params)}"
-    if filters:
-        filter_qs = "&".join(f"filter={quote(f)}" for f in filters)
-        link = f"{link}&{filter_qs}"
+    try:
+        x_field, y_field, labels, values = _extract_labels_values(rows, x_field, y_field)
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+    chart_title = title or f"{y_field} بر اساس {x_field}"
 
     return {
-        "dashboard_link": link,
-        "metric": metric,
-        "metric_label": METRIC_LABELS.get(metric, metric),
-        "dimension": dimension,
-        "applied_filters": filters,
-        "note": "کاربر باید دسترسی مجاز به این گزارش Power BI رو داشته باشه تا لینک باز بشه.",
+        "chart_type": chart_type,
+        "title": chart_title,
+        "x_field": x_field,
+        "y_field": y_field,
+        "row_count": len(rows),
+        "chartjs_config": _build_chartjs_config(chart_type, chart_title, x_field, y_field, labels, values),
+        "echarts_option": _build_echarts_option(chart_type, chart_title, x_field, y_field, labels, values),
+        "plotly_figure": _build_plotly_figure(chart_type, chart_title, x_field, y_field, labels, values),
     }

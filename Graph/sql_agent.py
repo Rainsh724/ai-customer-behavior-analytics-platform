@@ -2,22 +2,28 @@
 """
 پیاده‌سازی واقعی Tool_SQL.
 
-تفاوت با نسخه‌ی قبلی (پایپ‌لاین): قبلاً sql_agent یک نود گراف بود که کل
-`state["question"]` رو می‌گرفت. الان این یک تابع ابزارِ معمولی‌ست که
-Agent (نود مرکزی) صداش می‌زنه و بهش یک "data_need" مشخص و کوچیک می‌ده
-(نه لزوماً کل سوال کاربر -- ممکنه Agent یک زیرسوال دقیق‌تر بسازه، مثلاً
-در سناریوی استدلال چندمرحله‌ای اول یک data_need برای "روند فروش" می‌سازه).
+تغییر مهم نسبت به نسخه‌ی قبلی: قبلاً این تابع یک "data_need" (توضیح
+فارسی از نیاز) می‌گرفت و خودش با یک تماس LLM جداگانه SQL واقعی رو
+می‌ساخت. طبق تصمیمی که گرفتیم، اون لایه‌ی اضافه حذف شد -- الان خودِ
+Agent (همون تماس اول، نه یک زیرایجنت پنهان) مستقیماً متن SQL رو در
+آرگومان tool_sql می‌نویسه. اسکیما و قوانین امنیتی دیتابیس
+(SCHEMA_CONTEXT پایین همین فایل) دیگه در یک system prompt جدا نیست --
+مستقیم در description خود ابزار tool_sql قرار می‌گیره (نگاه کن به
+tools.py::TOOL_DEFINITIONS)، دقیقاً همون‌جایی که Agent قبل از نوشتن SQL
+می‌بینتش.
 
-مسئولیت این تابع («Agent» به‌معنای کلاسیک، نه LLM):
-    1. ساخت prompt با context اسکیمای واقعی دیتابیس
-    2. صدا زدن LLM برای گرفتن SQL
-    3. VALIDATE کردن خروجی LLM قبل از اجرا (LLM قابل‌اعتماد نیست!)
-    4. اجرای SQL روی Postgres واقعی (از طریق db.py)
-    5. اگر خطا داد -> خودش یک بار (repair loop سبک، فقط برای خطای
-       نحوی/اسکیمایی) تلاش می‌کنه اصلاح کنه؛ اگه بازم شکست خورد، خطای
-       واقعی رو برمی‌گردونه تا خودِ Agent (LLM بالادست) در چرخه‌ی
-       self-correction سند معماری تصمیم بگیره -- دوباره با data_need
-       متفاوت صدا بزنه، یا از کاربر توضیح بیشتر بخواد.
+مسئولیت این تابع الان فقط:
+    1. VALIDATE کردن SQL ای که Agent نوشته -- این گیت امنیتی حذف
+       نمی‌شه، چون LLM (حتی اگه همون Agent اصلی باشه) قابل‌اعتماد نیست.
+    2. اجرای SQL روی Postgres واقعی (از طریق db.py).
+
+اگه SQL نامعتبر بود یا اجرا خطا داد، این تابع دیگه خودش تلاش مجدد
+نمی‌کنه -- خطا به‌صورت پیام "tool" به خودِ Agent برمی‌گرده تا طبق سند
+معماری ("خطا به LLM برمی‌گردد تا کوئری خود را اصلاح و دوباره ارسال
+کند") خودش با یک tool_call جدید و SQL اصلاح‌شده دوباره تلاش کنه. یعنی
+حلقه‌ی self-correction کاملاً در همون حلقه‌ی agent<->tools اصلی اتفاق
+می‌افته -- در tool_trace هم قابل‌مشاهده و قابل‌ممیزیه، نه یک ریترای
+پنهان که کسی نمی‌بینتش.
 """
 from __future__ import annotations
 
@@ -26,13 +32,16 @@ import re
 from typing import Any
 
 from .db import run_readonly_query
-from .llm_client import call_llm_json
 
 logger = logging.getLogger(__name__)
 
 # ============================================================
 # SCHEMA CONTEXT -- دقیقاً همون جدول/ستون‌هایی که در
 # lod_data_to_database2.py پروژه‌ی اصلی بهشون INSERT می‌شه.
+#
+# این متن مستقیماً در description ابزار tool_sql تزریق می‌شه (نگاه کن
+# به tools.py) تا Agent در همون اولین و تنها تماسش بتونه SQL معتبر
+# بنویسه -- دیگه هیچ تماس LLM دومی برای "ترجمه‌ی نیاز به SQL" نداریم.
 # ============================================================
 
 SCHEMA_CONTEXT = """
@@ -58,13 +67,14 @@ user_behavior_logs(log_id PK, session_id FK->sessions.session_id,
 comments(id BIGINT PK, product_id FK->products.id, is_buyer BOOLEAN,
          rate DOUBLE PRECISION, recommendation_status TEXT, likes INT, dislikes INT,
          raw_text_normalized TEXT, created_at TIMESTAMPTZ)
-         -- توجه: embedding کامنت‌ها این‌جا نیست، جدول جدای comments_embedding را ببین.
 
 comments_embedding(id BIGINT PK/FK->comments.id, embedded_comment VECTOR(768))
-                    -- این جدول فقط برای RAG/similarity search استفاده می‌شه.
+                    -- فقط برای RAG/similarity search؛ برای tool_sql ازش استفاده نکن.
 
 comment_aspects(aspect_id PK, comment_id FK->comments.id, term TEXT,
                  sentiment TEXT, negative_pct DOUBLE, neutral_pct DOUBLE, positive_pct DOUBLE)
+                 -- برای شمارش/آمار جنبه‌ها قابل‌استفاده‌ست؛ برای *خوندن متن*
+                 -- نظرات و جست‌وجوی معنایی، اون کار tool_rag است نه tool_sql.
 """
 
 ALLOWED_TABLES = {
@@ -79,26 +89,12 @@ FORBIDDEN_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
-SYSTEM_PROMPT = f"""
-تو یک مولد کوئری Postgres هستی. فقط و فقط یک شیء JSON با این فرمت برگردون:
-{{"sql": "<یک کوئری SELECT معتبر>", "explanation": "<توضیح کوتاه فارسی>"}}
-
-قوانین سخت‌گیرانه:
-- فقط SELECT (یا WITH ... SELECT). هیچ‌وقت INSERT/UPDATE/DELETE/DDL ننویس.
-- فقط از جداول/ستون‌های زیر استفاده کن، هیچ جدول فرضی نساز.
-- همیشه یک LIMIT (حداکثر 200) بذار مگر این‌که aggregate/COUNT باشه.
-- از placeholder یا چندین statement (جداشده با ;) استفاده نکن -- فقط یک کوئری.
-- تاریخ‌ها را با NOW() / INTERVAL بساز، هاردکد نکن مگر کاربر تاریخ دقیق داده.
-
-اسکیمای دیتابیس:
-{SCHEMA_CONTEXT}
-"""
-
-MAX_REPAIR_ATTEMPTS = 2
-
 
 def _validate_sql(sql: str) -> str | None:
-    """برمی‌گردونه: پیام خطا اگه SQL مشکل داره، وگرنه None."""
+    """برمی‌گردونه: پیام خطا اگه SQL مشکل داره، وگرنه None. این تنها گیت
+    امنیتی‌ست که بعد از حذف تماس LLM داخلی باقی مونده -- عمداً حذف
+    نشده، چون حتی وقتی خودِ Agent اصلی SQL می‌نویسه، نباید بدون بررسی
+    مستقیم روی دیتابیس اجرا بشه."""
     stripped = sql.strip().rstrip(";")
     if not re.match(r"^\s*(SELECT|WITH)\b", stripped, re.IGNORECASE):
         return "کوئری باید با SELECT یا WITH شروع بشه."
@@ -114,57 +110,32 @@ def _validate_sql(sql: str) -> str | None:
     return None
 
 
-def _generate_sql(data_need: str, prior_error: str | None = None, prior_sql: str | None = None) -> dict[str, Any]:
-    user_prompt = f"داده‌ی موردنیاز: {data_need}"
-    if prior_error and prior_sql:
-        user_prompt += (
-            f"\n\nتلاش قبلی رد شد. SQL قبلی:\n{prior_sql}\n"
-            f"دلیل رد شدن: {prior_error}\nلطفاً اصلاح‌شده رو برگردون."
-        )
-    return call_llm_json(SYSTEM_PROMPT, user_prompt)
-
-
-def run_sql_tool(data_need: str) -> dict[str, Any]:
+def run_sql_tool(sql: str) -> dict[str, Any]:
     """
-    ورودی: توضیح فارسی و مشخصِ داده‌ی موردنیاز (چیزی که Agent در آرگومان
-    tool_sql فرستاده -- نگاه کن به tools.py).
+    ورودی: متن SQL که خودِ Agent (نه یک زیرایجنت پنهان) در آرگومان
+    tool_sql نوشته.
     خروجی: dict که مستقیم به‌صورت JSON در پیام "tool" به Agent برمی‌گرده؛
-    اگه کلید "error" داشته باشه، Agent می‌فهمه شکست خورده و می‌تونه
-    (طبق سند معماری) دوباره با data_need اصلاح‌شده صدا بزنه.
+    اگه کلید "error" داشته باشه، Agent خودش (طبق سند معماری) با یک
+    tool_call جدید و SQL اصلاح‌شده دوباره تلاش می‌کنه -- این تلاش مجدد
+    یکی از دورهای عادی حلقه‌ی agent<->tools حساب می‌شه (به
+    consecutive_tool_errors/iterations هم می‌خوره، نگاه کن به
+    nodes.py).
     """
-    if not data_need or not data_need.strip():
-        return {"error": "data_need خالی بود."}
+    if not sql or not sql.strip():
+        return {"error": "sql خالی بود."}
 
-    last_sql = ""
-    last_error: str | None = None
+    validation_error = _validate_sql(sql)
+    if validation_error:
+        return {"error": f"SQL نامعتبر: {validation_error}", "rejected_sql": sql}
 
-    for attempt in range(MAX_REPAIR_ATTEMPTS + 1):
-        llm_out = _generate_sql(data_need, prior_error=last_error, prior_sql=last_sql)
-        sql = (llm_out.get("sql") or "").strip()
-        last_sql = sql
+    try:
+        rows = run_readonly_query(sql)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("run_sql_tool: execution failed: %s", exc)
+        return {"error": f"اجرای SQL شکست خورد: {exc}", "rejected_sql": sql}
 
-        validation_error = _validate_sql(sql)
-        if validation_error:
-            last_error = validation_error
-            logger.warning("run_sql_tool: validation attempt %d failed: %s", attempt, validation_error)
-            continue
-
-        try:
-            rows = run_readonly_query(sql)
-            return {
-                "sql_query": sql,
-                "rows": rows,
-                "row_count": len(rows),
-                "explanation": llm_out.get("explanation", ""),
-            }
-        except Exception as exc:  # noqa: BLE001
-            last_error = str(exc)
-            logger.warning("run_sql_tool: execution attempt %d failed: %s", attempt, last_error)
-            continue
-
-    # حتی بعد از تلاش‌های داخلی هم شکست خورد -- این خطا رو (نه یک
-    # exception) برمی‌گردونیم تا به‌صورت پیام "tool" به خودِ Agent برسه.
     return {
-        "error": f"اجرای SQL بعد از {MAX_REPAIR_ATTEMPTS + 1} تلاش شکست خورد: {last_error}",
-        "last_attempted_sql": last_sql,
+        "sql_query": sql,
+        "rows": rows,
+        "row_count": len(rows),
     }
