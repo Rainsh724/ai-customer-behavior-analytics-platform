@@ -127,3 +127,65 @@ SELECT
 FROM analytics.feature_aspect
 WHERE total_mentions > 5 -- حذف نویزها
 ORDER BY total_mentions DESC;
+
+
+
+
+-- جدید برای کلاسترینگ
+
+CREATE OR REPLACE VIEW kpi.rfm_segments AS
+WITH recency_data AS (
+    SELECT
+        s.user_id,
+        -- محاسبه تعداد روزهای گذشته از آخرین فعالیت کاربر
+        EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - MAX(l.timestamp)))/86400 AS recency_days
+    FROM public.sessions s
+    JOIN public.user_behavior_logs l ON s.session_id = l.session_id
+    GROUP BY s.user_id
+),
+rfm_raw AS (
+    SELECT
+        fu.user_id,
+        COALESCE(rd.recency_days, 9999) AS recency_days,
+        fu.total_purchases AS frequency,
+        fu.total_spend AS monetary
+    FROM analytics.feature_user fu
+    LEFT JOIN recency_data rd ON fu.user_id = rd.user_id
+    WHERE fu.total_purchases > 0 -- RFM معمولاً برای خریداران محاسبه می‌شود
+),
+rfm_scoring AS (
+    SELECT
+        user_id,
+        recency_days,
+        frequency,
+        monetary,
+        -- تخصیص امتیاز ۱ تا ۵ (۵ بهترین است)
+        NTILE(5) OVER (ORDER BY recency_days DESC) AS r_score, 
+        NTILE(5) OVER (ORDER BY frequency ASC) AS f_score,
+        NTILE(5) OVER (ORDER BY monetary ASC) AS m_score
+    FROM rfm_raw
+)
+SELECT
+    user_id,
+    recency_days,
+    frequency,
+    monetary,
+    (r_score::text || f_score::text || m_score::text) AS rfm_code,
+    
+	CASE
+	        WHEN r_score >= 4 AND f_score >= 4 AND m_score >= 4 THEN 'vip'
+	        WHEN r_score >= 4 AND f_score <= 2 THEN 'promising'
+	        WHEN r_score <= 2 AND f_score >= 4 THEN 'at_risk'
+	        WHEN r_score <= 2 AND f_score <= 2 THEN 'lost'
+	        ELSE 'regular'
+	    END AS rfm_label
+FROM rfm_scoring;
+
+
+
+
+CREATE TABLE IF NOT EXISTS kpi.ml_user_clusters (
+    user_id BIGINT PRIMARY KEY REFERENCES public.users(user_id) ON DELETE CASCADE,
+    cluster_id INT NOT NULL,
+    cluster_name VARCHAR(100) NOT NULL
+);
