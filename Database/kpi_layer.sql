@@ -189,3 +189,304 @@ CREATE TABLE IF NOT EXISTS kpi.ml_user_clusters (
     cluster_id INT NOT NULL,
     cluster_name VARCHAR(100) NOT NULL
 );
+
+
+# این ها kpi های جدیدمون هستن برای داشبورد
+
+
+
+-- ============================================================
+-- KPI VIEWS - DYNAMIC 30 DAYS BASED ON LATEST DATA
+-- ============================================================
+
+CREATE SCHEMA IF NOT EXISTS kpi;
+
+
+-- ============================================================
+-- 1. DAILY FUNNEL
+-- ============================================================
+-- این View برای نمودارهای زمانی داشبورد است.
+-- هر ردیف = یک روز
+--
+-- بازه:
+-- آخرین 30 روز موجود در user_behavior_logs
+--
+-- مثال فعلی:
+-- 2023-01-30 → 2023-03-01
+-- ============================================================
+
+CREATE OR REPLACE VIEW kpi.daily_funnel AS
+
+WITH latest_data AS (
+    SELECT
+        MAX(timestamp) AS max_timestamp
+    FROM public.user_behavior_logs
+),
+
+daily_data AS (
+    SELECT
+        DATE(l.timestamp) AS event_date,
+
+        COUNT(*) FILTER (
+            WHERE LOWER(l.event_type) = 'view'
+        ) AS total_views,
+
+        COUNT(*) FILTER (
+            WHERE LOWER(l.event_type) = 'add_to_cart'
+        ) AS total_carts,
+
+        COUNT(*) FILTER (
+            WHERE LOWER(l.event_type) = 'purchase'
+        ) AS total_purchases,
+
+        COUNT(*) FILTER (
+            WHERE LOWER(l.event_type) = 'remove_from_cart'
+        ) AS total_removes
+
+    FROM public.user_behavior_logs l
+    CROSS JOIN latest_data ld
+
+    WHERE l.timestamp >= (
+        ld.max_timestamp - INTERVAL '30 days'
+    )
+    AND l.timestamp <= ld.max_timestamp
+
+    GROUP BY DATE(l.timestamp)
+)
+
+SELECT
+    event_date,
+
+    total_views,
+    total_carts,
+    total_purchases,
+    total_removes,
+
+    -- View → Cart
+    ROUND(
+        (
+            total_carts::NUMERIC
+            / NULLIF(total_views, 0)
+        ) * 100,
+        2
+    ) AS view_to_cart_pct,
+
+    -- Cart → Purchase
+    ROUND(
+        (
+            total_purchases::NUMERIC
+            / NULLIF(total_carts, 0)
+        ) * 100,
+        2
+    ) AS cart_to_purchase_pct,
+
+    -- View → Purchase
+    ROUND(
+        (
+            total_purchases::NUMERIC
+            / NULLIF(total_views, 0)
+        ) * 100,
+        2
+    ) AS overall_conversion_pct,
+
+    -- Cart Abandonment
+    ROUND(
+        (
+            total_removes::NUMERIC
+            / NULLIF(total_carts, 0)
+        ) * 100,
+        2
+    ) AS cart_abandonment_pct
+
+FROM daily_data
+
+ORDER BY event_date;
+
+
+-- ============================================================
+-- 2. TOP PRODUCTS - LAST 30 DAYS
+-- ============================================================
+-- هر ردیف = یک محصول
+--
+-- فقط رفتارهای 30 روز اخیر موجود در دیتابیس
+--
+-- مرتب شده بر اساس درآمد
+-- ============================================================
+
+CREATE OR REPLACE VIEW kpi.top_products_30d AS
+
+WITH latest_data AS (
+    SELECT
+        MAX(timestamp) AS max_timestamp
+    FROM public.user_behavior_logs
+),
+
+product_stats AS (
+    SELECT
+
+        p.id AS product_id,
+        p.title_fa AS product_name,
+        p.price,
+
+        COUNT(*) FILTER (
+            WHERE LOWER(l.event_type) = 'view'
+        ) AS total_views_30d,
+
+        COUNT(*) FILTER (
+            WHERE LOWER(l.event_type) = 'add_to_cart'
+        ) AS total_carts_30d,
+
+        COUNT(*) FILTER (
+            WHERE LOWER(l.event_type) = 'purchase'
+        ) AS total_purchases_30d,
+
+        COUNT(*) FILTER (
+            WHERE LOWER(l.event_type) = 'remove_from_cart'
+        ) AS total_removes_30d
+
+    FROM public.user_behavior_logs l
+
+    INNER JOIN public.products p
+        ON l.product_id = p.id
+
+    CROSS JOIN latest_data ld
+
+    WHERE l.timestamp >= (
+        ld.max_timestamp - INTERVAL '30 days'
+    )
+    AND l.timestamp <= ld.max_timestamp
+
+    GROUP BY
+        p.id,
+        p.title_fa,
+        p.price
+)
+
+SELECT
+
+    product_id,
+    product_name,
+    price,
+
+    total_views_30d,
+    total_carts_30d,
+    total_purchases_30d,
+    total_removes_30d,
+
+    -- Revenue
+    (
+        total_purchases_30d * COALESCE(price, 0)
+    ) AS total_revenue_30d,
+
+    -- Conversion Rate
+    ROUND(
+        (
+            total_purchases_30d::NUMERIC
+            / NULLIF(total_views_30d, 0)
+        ) * 100,
+        2
+    ) AS conversion_rate_30d
+
+FROM product_stats
+
+WHERE total_purchases_30d > 0
+
+ORDER BY
+    total_revenue_30d DESC;
+
+
+-- ============================================================
+-- 3. TOP BRANDS - LAST 30 DAYS
+-- ============================================================
+-- هر ردیف = یک Brand
+--
+-- داده‌ها مستقیماً از user_behavior_logs
+-- + products
+-- + brands
+-- گرفته می‌شوند.
+-- ============================================================
+
+CREATE OR REPLACE VIEW kpi.top_brands_30d AS
+
+WITH latest_data AS (
+    SELECT
+        MAX(timestamp) AS max_timestamp
+    FROM public.user_behavior_logs
+),
+
+brand_stats AS (
+    SELECT
+
+        b.brand_id,
+        b.name AS brand_name,
+
+        COUNT(*) FILTER (
+            WHERE LOWER(l.event_type) = 'view'
+        ) AS total_views_30d,
+
+        COUNT(*) FILTER (
+            WHERE LOWER(l.event_type) = 'add_to_cart'
+        ) AS total_carts_30d,
+
+        COUNT(*) FILTER (
+            WHERE LOWER(l.event_type) = 'purchase'
+        ) AS total_purchases_30d,
+
+        COUNT(*) FILTER (
+            WHERE LOWER(l.event_type) = 'remove_from_cart'
+        ) AS total_removes_30d,
+
+        SUM(
+            CASE
+                WHEN LOWER(l.event_type) = 'purchase'
+                THEN COALESCE(p.price, 0)
+                ELSE 0
+            END
+        ) AS total_revenue_30d
+
+    FROM public.user_behavior_logs l
+
+    INNER JOIN public.products p
+        ON l.product_id = p.id
+
+    INNER JOIN public.brands b
+        ON p.brand_id = b.brand_id
+
+    CROSS JOIN latest_data ld
+
+    WHERE l.timestamp >= (
+        ld.max_timestamp - INTERVAL '30 days'
+    )
+    AND l.timestamp <= ld.max_timestamp
+
+    GROUP BY
+        b.brand_id,
+        b.name
+)
+
+SELECT
+
+    brand_id,
+    brand_name,
+
+    total_views_30d,
+    total_carts_30d,
+    total_purchases_30d,
+    total_removes_30d,
+    total_revenue_30d,
+
+    -- Conversion Rate
+    ROUND(
+        (
+            total_purchases_30d::NUMERIC
+            / NULLIF(total_views_30d, 0)
+        ) * 100,
+        2
+    ) AS conversion_rate_30d
+
+FROM brand_stats
+
+WHERE total_purchases_30d > 0
+
+ORDER BY
+    total_revenue_30d DESC;
