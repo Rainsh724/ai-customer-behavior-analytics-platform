@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from Graph.graph import get_graph
+from app.graph.graph import get_graph
+from app import memory_store
 
 # ============================================================
 # پرامپت سیستمی Agent -- شخصیت "مدیر ارشد" طبق سند معماری.
@@ -78,14 +79,26 @@ AGENT_SYSTEM_PROMPT = """
 """
 
 
-def run(question: str, history: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def run(
+    question: str,
+    chat_id: str | None = None,
+    history: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """
     question: سوال جدید کاربر.
-    history:  تاریخچه‌ی پیام‌های مکالمه‌ی قبلی (خروجی result["messages"]
-              از تماس قبلی run())، برای پشتیبانی از حافظه‌ی چندتوری --
-              نگهداری واقعی این تاریخچه بین درخواست‌های HTTP (session/
-              Redis/دیتابیس) مسئولیت لایه‌ی API است، نه این تابع.
+    chat_id:  اگه بدی، تاریخچه‌ی این چت خودکار از Postgres خونده می‌شه
+              (memory_store.load_messages) و بعد از پایان اجرا خودکار
+              ذخیره می‌شه (memory_store.save_messages) -- شامل
+              فشرده‌سازی خودکار وقتی مکالمه طولانی بشه (maybe_compact).
+    history:  اگه بخوای خودت تاریخچه رو مدیریت کنی (مثلاً لایه‌ی API
+              خودت جای دیگه‌ای نگهش می‌داره)، مستقیم بده -- در این حالت
+              chat_id فقط برای ذخیره‌سازی نهایی استفاده می‌شه، نه خواندن.
+              اگه هیچ‌کدوم رو ندی، دقیقاً مثل قبل -- بدون حافظه‌ی
+              پایدار -- کار می‌کنه.
     """
+    if chat_id and history is None:
+        history = memory_store.load_messages(chat_id)
+
     messages: list[dict[str, Any]] = list(history) if history else []
 
     if not messages or messages[0].get("role") != "system":
@@ -93,8 +106,16 @@ def run(question: str, history: list[dict[str, Any]] | None = None) -> dict[str,
 
     messages.append({"role": "user", "content": question})
 
+    # فشرده‌سازی فقط وقتی واقعاً از سقف دورها رد شده باشیم اثر می‌کنه --
+    # وگرنه همون messages بدون تغییر برمی‌گرده (هزینه‌ی این خط تقریباً صفره).
+    messages = memory_store.maybe_compact(messages)
+
     graph = get_graph()
     result = graph.invoke({"messages": messages, "iterations": 0})
+
+    if chat_id:
+        memory_store.save_messages(chat_id, result["messages"])
+
     return result
 
 
@@ -111,12 +132,13 @@ def main() -> None:
         for err in errors:
             print(f"  - {err}")
 
-    # نمونه‌ی سناریوی حافظه (قانون ۱): سوال دوم نباید دوباره جهت رو با
-    # SQL چک کنه.
-    trend = run("وضعیت فروش محصول Y در ماه اخیر چطور بوده؟")
-    followup = run("چرا؟", history=trend.get("messages"))
-    print("\n\n--- سوال ادامه‌دار (حافظه‌ی چت) ---")
-    print(followup.get("final_answer"))
+    # نمونه‌ی سناریوی حافظه (قانون ۱) -- این‌بار با chat_id واقعی، یعنی
+    # هر دو دور خودکار در Postgres ذخیره/خونده می‌شن (نیاز به CHAT_DB_*
+    # و ensure_schema() از قبل اجرا شده داره).
+    run("وضعیت فروش محصول Y در ماه اخیر چطور بوده؟", chat_id="demo-chat-1")
+    followup2 = run("چرا؟", chat_id="demo-chat-1")
+    print("\n\n--- سوال ادامه‌دار با حافظه‌ی Postgres (chat_id) ---")
+    print(followup2.get("final_answer"))
 
     # نمونه‌ی BI پایتونی
     bi_result = run("نمودار فروش ماهانه محصول X رو نشون بده")
