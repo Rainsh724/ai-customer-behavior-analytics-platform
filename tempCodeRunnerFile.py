@@ -1,179 +1,128 @@
-'''
-import numpy as np
-import psycopg2
-from pgvector.psycopg2 import register_vector
-from sentence_transformers import SentenceTransformer
-import os
-from pathlib import Path
-from sentence_transformers import SentenceTransformer
-import time
+## PATH: app/main.py
+from __future__ import annotations
 
-# مشخص کردن یک پوشه کاملاً امن در درایو D
-CACHE_DIR = "D:/HuggingFace_Cache"
-os.makedirs(CACHE_DIR, exist_ok=True)
+from typing import Any
 
-EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-base"   
-USE_E5_PREFIXES = True
+from Graph.graph import get_graph
 
-print("Loading embedding model (CPU) on D drive...")
-# انتقال مستقیم کش به درایو D با پارامتر cache_folder
-model = SentenceTransformer(EMBEDDING_MODEL_NAME, device="cpu", cache_folder=CACHE_DIR)
+# ============================================================
+# پرامپت سیستمی Agent -- شخصیت "مدیر ارشد" طبق سند معماری.
+# ============================================================
+# قوانین ۴ و ۵ مستقیماً از دو سناریوی دقیقی میان که مطرح شد:
+#   - "چرا فروش محصول X کم شده؟" -> اول SQL برای تایید افت، فقط اگه
+#     تایید شد برو سراغ RAG فیلترشده روی همون محصول.
+#   - سوال دوتوری "وضعیت فروش Y؟" -> "چرا؟" -> دور دوم نباید دوباره
+#     جهت افزایش/کاهش رو با SQL چک کنه، چون از تاریخچه‌ی مکالمه معلومه.
 
-# ================== تنظیمات شما ==================
-# مشخصات دیتابیس خودت را اینجا وارد کن
-POSTGRES_DSN = "dbname=ai_project user=postgres password=zynb1223 host=localhost port=5432"
+AGENT_SYSTEM_PROMPT = """
+تو مدیر ارشد (Agent) یک سیستم تحلیل هوشمند کسب‌وکار هستی که به مدیران
+یک فروشگاه آنلاین در تحلیل داده کمک می‌کنی. سه ابزار در اختیار داری:
+
+    tool_sql  -- خودت مستقیم یک کوئری SQL معتبر Postgres می‌نویسی (اسکیما
+                 و قوانینش در description خود ابزار آمده)
+    tool_rag  -- جست‌وجوی معنایی خلاصه‌شده در نظرات مشتری‌ها (فقط
+                 search_topic و اختیاراً product_id -- بدون فیلتر
+                 برچسبی/جنبه‌ای، چون مدل ABSA ما روی استخراج جنبه دقت
+                 پایینی داره)
+    tool_bi   -- ساخت نمودار واقعی (Chart.js/ECharts/Plotly) از روی یک
+                 کوئری SQL که خودت می‌نویسی
+
+قوانین کار تو:
+
+۱. حافظه‌ی مکالمه را همیشه اول چک کن. اگه جوابِ بخشی از سوال از تاریخچه‌ی
+   همین مکالمه (پیام‌ها و نتایج ابزارهای قبلی) قابل استخراجه، دوباره
+   ابزاری که همون داده رو قبلاً آورده صدا نزن.
+   مثال دقیق: اگه در دور قبلِ همین مکالمه با tool_sql تایید کردی که
+   فروش محصول Y "افزایشی" بوده و کاربر الان فقط پرسیده "چرا؟"، دیگر
+   لازم نیست دوباره با tool_sql جهت (افزایشی/کاهشی) رو چک کنی --
+   مستقیم و فقط با tool_rag (با جهت مثبت/افزایشی در search_topic، مثلاً
+   "دلایل رضایت و استقبال از محصول Y") برو سراغ دلیل.
+
+۲. اگه سوال هم به داده‌ی عددی هم به دلیل/احساس کیفی نیاز داره و هنوز
+   هیچ‌کدوم از قبل در تاریخچه نیست (مثلاً "سود برند X و احساسات مردم
+   درباره‌ش رو بگو")، هر دو ابزار (tool_sql و tool_rag) رو در همون دور،
+   هم‌زمان صدا بزن.
+
+۳. برای سوالات آماری ساده (بدون "چرا")، فقط tool_sql کافیه.
+
+۴. برای سوالات علّی از نوع "چرا فروش/امتیاز/بازدید محصول X کم/زیاد شده؟"،
+   این ترتیب دقیق را رعایت کن -- هیچ‌کدوم از این مراحل رو جابه‌جا یا حذف
+   نکن:
+       الف) اول، و فقط با tool_sql، تایید کن که واقعاً همون تغییری که
+            کاربر فرض کرده (کاهش یا افزایش) اتفاق افتاده -- مثلاً فروش
+            محصول X را در بازه‌ی اخیر با بازه‌ی قبل مقایسه کن.
+       ب) اگر تغییری که کاربر فرض کرده اصلاً رخ نداده (مثلاً فروش کاهش
+          نداشته)، همین‌جا متوقف شو و صادقانه در جواب نهایی بگو که این
+          فرض درست نیست -- به‌هیچ‌وجه سراغ tool_rag نرو، چون رفتن سراغ
+          دلیلِ چیزی که اصلاً اتفاق نیفتاده گمراه‌کننده است.
+       ج) اگر تغییر تایید شد، با tool_rag (search_topic در همون جهت،
+          یعنی برای کاهش: "دلایل نارضایتی و شکایت از محصول X"؛ برای
+          افزایش: "دلایل رضایت و استقبال از محصول X"، به‌همراه product_id
+          همون محصول) نظرات مرتبط رو خلاصه‌شده بگیر.
+       د) در جواب نهایی، عدد/درصد تغییر (از SQL) را با مضامین/نظرات
+          خلاصه‌شده (از RAG) ترکیب کن -- ولی هرگز رابطه‌ی علّی‌ای که
+          مستقیم از این دو شاهد برنمیاد رو اختراع نکن؛ اگه نظرات کافی
+          برای توضیح افت/رشد نبود، صریح بگو شواهد کافی برای یک دلیل
+          قطعی نیست.
+
+۵. اگه ابزاری خطا داد (مثلاً SQL نامعتبر یا داده‌ای پیدا نشد)، خودت با
+   یک tool_call جدید و پارامتر/کوئری اصلاح‌شده دوباره تلاش کن؛ کاربر
+   نباید متوجه این خطای داخلی بشه مگر واقعاً بعد از چند تلاش هم به
+   داده‌ای نرسیدی.
+
+۶. فقط وقتی کاربر صریحاً نمودار/چارت/داشبورد/مصورسازی خواست از tool_bi
+   استفاده کن.
+
+۷. جواب نهایی رو همیشه به فارسی، روان، و در قالب یک پاسخ انسانی و
+   مدیریتی بنویس -- نه دامپ خام JSON نتایج ابزارها.
+"""
 
 
-def embed_query(text: str) -> np.ndarray:
-    prefixed = f"query: {text}" if USE_E5_PREFIXES else text
-    vec = model.encode([prefixed], convert_to_numpy=True, normalize_embeddings=True)[0]
-    return vec.astype(np.float32)
-
-def get_pg_conn():
-    conn = psycopg2.connect(POSTGRES_DSN)
-    register_vector(conn)
-    return conn
-
-def search_comments(query_text: str, top_k: int = 5):
-    
-    # زمان embedding
-    start = time.perf_counter()
-    
-    q_vec = embed_query(query_text)
-    
-    embedding_time = time.perf_counter() - start
-
-    conn = get_pg_conn()
-
-    # زمان PostgreSQL
-    start = time.perf_counter()
-
-    sql = """
-        SELECT id, raw_text_normalized,
-               embedded_comment <=> %s AS distance
-        FROM comments
-        WHERE embedded_comment IS NOT NULL
-        ORDER BY embedded_comment <=> %s
-        LIMIT %s;
+def run(question: str, history: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """
+    question: سوال جدید کاربر.
+    history:  تاریخچه‌ی پیام‌های مکالمه‌ی قبلی (خروجی result["messages"]
+              از تماس قبلی run())، برای پشتیبانی از حافظه‌ی چندتوری --
+              نگهداری واقعی این تاریخچه بین درخواست‌های HTTP (session/
+              Redis/دیتابیس) مسئولیت لایه‌ی API است، نه این تابع.
+    """
+    messages: list[dict[str, Any]] = list(history) if history else []
 
-    with conn.cursor() as cur:
-        cur.execute(sql, (q_vec, q_vec, top_k))
-        results = cur.fetchall()
+    if not messages or messages[0].get("role") != "system":
+        messages.insert(0, {"role": "system", "content": AGENT_SYSTEM_PROMPT})
 
-    search_time = time.perf_counter() - start
+    messages.append({"role": "user", "content": question})
 
-    conn.close()
+    graph = get_graph()
+    result = graph.invoke({"messages": messages, "iterations": 0})
+    return result
 
-    print(f"Embedding time: {embedding_time:.3f} sec")
-    print(f"PostgreSQL search time: {search_time:.3f} sec")
-    print(f"Total: {embedding_time + search_time:.3f} sec")
 
-    return results
+def main() -> None:
+    # نمونه‌ی سناریوی چندابزاری کامل (قانون ۴): تایید افت با SQL، بعد
+    # دلیل با RAG خلاصه‌شده.
+    result = run("چرا فروش محصول X در ماه جاری کاهش پیدا کرده؟")
+    print("\nFINAL ANSWER:")
+    print(result.get("final_answer"))
+
+    errors = result.get("errors") or []
+    if errors:
+        print("\nERRORS:")
+        for err in errors:
+            print(f"  - {err}")
+
+    # نمونه‌ی سناریوی حافظه (قانون ۱): سوال دوم نباید دوباره جهت رو با
+    # SQL چک کنه.
+    trend = run("وضعیت فروش محصول Y در ماه اخیر چطور بوده؟")
+    followup = run("چرا؟", history=trend.get("messages"))
+    print("\n\n--- سوال ادامه‌دار (حافظه‌ی چت) ---")
+    print(followup.get("final_answer"))
+
+    # نمونه‌ی BI پایتونی
+    bi_result = run("نمودار فروش ماهانه محصول X رو نشون بده")
+    print("\n\n--- نمونه‌ی BI ---")
+    print(bi_result.get("final_answer"))
+
 
 if __name__ == "__main__":
-    print("\n=== موتور جستجوی معنایی هوشمند فعال شد ===")
-    
-    # جستجوی تعاملی (مثل یک چت‌بات)
-    while True:
-        q = input("\nیک چیزی درباره محصولات بپرس (یا بزن Enter برای خروج): ").strip()
-        if not q:
-            break
-            
-        print("در حال جستجو در میان صدها هزار کامنت...")
-        results = search_comments(q, top_k=5)
-        
-        print("\n--- 📝 نتایج یافت شده ---")
-        for rid, text, dist in results:
-            # هرچه distance به صفر نزدیک‌تر باشد، یعنی شبیه‌تر است
-            print(f"ID: {rid} | شباهت (Distance): {dist:.4f}")
-            print(f"متن کامنت: {str(text)[:150]}...\n")
-'''
-
-
-import numpy as np
-import psycopg2
-from pgvector.psycopg2 import register_vector
-from sentence_transformers import SentenceTransformer
-import os
-import time
-
-# مشخص کردن یک پوشه کاملاً امن در درایو D
-CACHE_DIR = "E:/HuggingFace_Cache"
-os.makedirs(CACHE_DIR, exist_ok=True)
-
-EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-base"   
-USE_E5_PREFIXES = True
-
-print("Loading embedding model (CPU) on E drive...")
-# انتقال مستقیم کش به درایو D با پارامتر cache_folder
-model = SentenceTransformer(EMBEDDING_MODEL_NAME, device="cpu", cache_folder=CACHE_DIR)
-
-# ================== تنظیمات دیتابیس ==================
-POSTGRES_DSN = "dbname=postgres user=postgres password=HiddenPatern host=localhost port=5432"
-
-
-def embed_query(text: str) -> np.ndarray:
-    prefixed = f"query: {text}" if USE_E5_PREFIXES else text
-    vec = model.encode([prefixed], convert_to_numpy=True, normalize_embeddings=True)[0]
-    return vec.astype(np.float32)
-
-def get_pg_conn():
-    conn = psycopg2.connect(POSTGRES_DSN)
-    register_vector(conn)
-    return conn
-
-def search_comments(query_text: str, top_k: int = 5):
-    
-    # زمان embedding
-    start = time.perf_counter()
-    q_vec = embed_query(query_text)
-    embedding_time = time.perf_counter() - start
-
-    conn = get_pg_conn()
-
-    # زمان PostgreSQL
-    start = time.perf_counter()
-
-    # کوئری اصلاح‌شده با ساختار جدید جداول و تنظیمات فوق‌سریع ایندکس HNSW
-    sql = """
-        SET hnsw.ef_search = 128;
-        
-        SELECT c.id, c.raw_text_normalized,
-               e.embedded_comment <=> %s::vector AS distance
-        FROM comments_embedding e
-        INNER JOIN comments c ON e.id = c.id
-        ORDER BY e.embedded_comment <=> %s::vector
-        LIMIT %s;
-    """
-
-    with conn.cursor() as cur:
-        cur.execute(sql, (q_vec, q_vec, top_k))
-        results = cur.fetchall()
-
-    search_time = time.perf_counter() - start
-    conn.close()
-
-    print(f"Embedding time: {embedding_time:.3f} sec")
-    print(f"PostgreSQL search time: {search_time:.3f} sec")
-    print(f"Total: {embedding_time + search_time:.3f} sec")
-
-    return results
-
-if __name__ == "__main__":
-    print("\n=== موتور جستجوی معنایی هوشمند فعال شد ===")
-    
-    # جستجوی تعاملی (مثل یک چت‌بات)
-    while True:
-        q = input("\nیک چیزی درباره محصولات بپرس (یا بزن Enter برای خروج): ").strip()
-        if not q:
-            break
-            
-        print("در حال جستجو در میان صدها هزار کامنت...")
-        results = search_comments(q, top_k=5)
-        
-        print("\n--- 📝 نتایج یافت شده ---")
-        for rid, text, dist in results:
-            # هرچه distance به صفر نزدیک‌تر باشد، یعنی شبیه‌تر است
-            print(f"ID: {rid} | شباهت (Distance): {dist:.4f}")
-            print(f"متن کامنت: {str(text)[:150]}...\n")
+    main()

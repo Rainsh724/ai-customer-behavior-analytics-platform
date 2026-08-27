@@ -26,10 +26,10 @@ logger = logging.getLogger(__name__)
 
 
 class DBConfig:
-    DB_NAME = os.getenv("DB_NAME", "ai_project")
+    DB_NAME = os.getenv("DB_NAME", "postgres")
     # کاربر read-only مخصوص لایه LLM/آنالیتیکس -- نه superuser
-    DB_USER = os.getenv("DB_READONLY_USER", "app_readonly")
-    DB_PASSWORD = os.getenv("DB_READONLY_PASSWORD", "")
+    DB_USER = os.getenv("DB_READONLY_USER", "postgres")
+    DB_PASSWORD = os.getenv("DB_READONLY_PASSWORD", "HiddenPatern")
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = os.getenv("DB_PORT", "5432")
 

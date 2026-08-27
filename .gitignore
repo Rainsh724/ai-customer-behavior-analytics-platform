@@ -32,3 +32,5 @@ test_sandbox/
 
 # Models
 Models/
+
+.env
