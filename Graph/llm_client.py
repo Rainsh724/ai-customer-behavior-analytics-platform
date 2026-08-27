@@ -23,7 +23,10 @@ import os
 import threading
 from typing import Any
 
+from dotenv import load_dotenv
 from openai import OpenAI
+
+load_dotenv()
 
 _client: OpenAI | None = None
 
@@ -31,15 +34,23 @@ _client: OpenAI | None = None
 def get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        _client = OpenAI(
+            api_key=os.environ["GROQ_API_KEY"],
+            base_url="https://api.groq.com/openai/v1",
+        )
     return _client
 
 
-CHAT_MODEL = os.getenv("AGENT_LLM_MODEL", os.getenv("SQL_LLM_MODEL", "gpt-4.1"))
+CHAT_MODEL = os.getenv(
+    "AGENT_LLM_MODEL",
+    "openai/gpt-oss-120b",
+)
 
 # باید دقیقاً همون مدلی باشه که comments_embedding باهاش ساخته شده.
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "intfloat/multilingual-e5-base")
-
+EMBEDDING_MODEL_NAME = os.getenv(
+    "EMBEDDING_MODEL_NAME",
+    "intfloat/multilingual-e5-base",
+)
 
 def call_llm_json(system_prompt: str, user_prompt: str) -> dict[str, Any]:
     """
@@ -56,7 +67,7 @@ def call_llm_json(system_prompt: str, user_prompt: str) -> dict[str, Any]:
             {"role": "user", "content": user_prompt},
         ],
     )
-    content = resp.choices[0].message.content
+    content = resp.choices[0].message.content or "{}"
     return json.loads(content)
 
 
@@ -113,11 +124,15 @@ def call_llm_with_tools(
         messages=messages,
         tool_choice=tool_choice,
     )
+
     if tool_choice != "none":
         kwargs["tools"] = tools
+        kwargs["parallel_tool_calls"] = True
     resp = client.chat.completions.create(**kwargs)
-    return message_to_dict(resp.choices[0].message)
-
+    
+    return message_to_dict(
+        resp.choices[0].message
+    )
 
 _embedding_model = None
 _embedding_model_lock = threading.Lock()

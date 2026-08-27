@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.graph.graph import get_graph
-from app import memory_store
+from Graph.graph import get_graph
+import memory_store
 
 # ============================================================
 # پرامپت سیستمی Agent -- شخصیت "مدیر ارشد" طبق سند معماری.
