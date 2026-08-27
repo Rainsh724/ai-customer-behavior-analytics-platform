@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 # بنویسه -- دیگه هیچ تماس LLM دومی برای "ترجمه‌ی نیاز به SQL" نداریم.
 # ============================================================
 
+
 SCHEMA_CONTEXT = """
 جداول مجاز (فقط از همین‌ها و همین ستون‌ها استفاده کن):
 
@@ -75,13 +76,35 @@ comment_aspects(aspect_id PK, comment_id FK->comments.id, term TEXT,
                  sentiment TEXT, negative_pct DOUBLE, neutral_pct DOUBLE, positive_pct DOUBLE)
                  -- برای شمارش/آمار جنبه‌ها قابل‌استفاده‌ست؛ برای *خوندن متن*
                  -- نظرات و جست‌وجوی معنایی، اون کار tool_rag است نه tool_sql.
+
+
+-- ==========================================
+-- جداول تحلیلی و هوشمند (AI & Analytics)
+-- ==========================================
+analytics.feature_user(user_id BIGINT PK/FK->users.user_id, total_spend BIGINT, total_purchases INT, 
+                       total_views INT, active_days INT, category_diversity INT, 
+                       avg_session_duration_minutes DOUBLE PRECISION, 
+                       night_activity_ratio DOUBLE PRECISION, weekend_activity_ratio DOUBLE PRECISION)
+
+kpi.rfm_segments(user_id BIGINT PK/FK->users.user_id, recency_days INT, frequency INT, 
+                 monetary BIGINT, rfm_code TEXT, rfm_label TEXT)
+                 -- مقادیر rfm_label شامل: 'vip', 'promising', 'at_risk', 'lost', 'regular'
+
+kpi.ml_user_clusters(user_id BIGINT PK/FK->users.user_id, cluster_id INT, cluster_name TEXT)
+                     -- مقادیر cluster_name شامل: 'vip_champions', 'night_weekend_buyers', 'active_loyals', 'low_intent_shoppers', 'churned_customers'
 """
 
+# اضافه کردن جداول تحلیلی و نام اسکیماها به لیست سفید (Whitelist)
 ALLOWED_TABLES = {
     "products", "brands", "categories", "sellers", "users", "cities",
     "sessions", "user_behavior_logs", "comments", "comment_aspects",
     "comments_embedding",
+    # --- اضافه‌شده‌های جدید ---
+    "feature_user", "rfm_segments", "ml_user_clusters",
+    "analytics.feature_user", "kpi.rfm_segments", "kpi.ml_user_clusters",
+    "analytics", "kpi"  # اضافه کردن نام اسکیماها تا پارسر امنیتی به آن‌ها گیر ندهد
 }
+
 
 FORBIDDEN_KEYWORDS = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|GRANT|REVOKE|CREATE|COPY|"
@@ -139,3 +162,26 @@ def run_sql_tool(sql: str) -> dict[str, Any]:
         "rows": rows,
         "row_count": len(rows),
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

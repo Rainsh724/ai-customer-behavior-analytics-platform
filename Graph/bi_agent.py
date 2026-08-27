@@ -193,6 +193,7 @@ def run_bi_tool(
         "x_field": x_field,
         "y_field": y_field,
         "row_count": len(rows),
+        "raw_data": rows,
         "chartjs_config": _build_chartjs_config(chart_type, chart_title, x_field, y_field, labels, values),
         "echarts_option": _build_echarts_option(chart_type, chart_title, x_field, y_field, labels, values),
         "plotly_figure": _build_plotly_figure(chart_type, chart_title, x_field, y_field, labels, values),
