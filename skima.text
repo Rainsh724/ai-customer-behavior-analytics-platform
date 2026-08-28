@@ -1,0 +1,979 @@
+============================================================
+2. DATABASE LAYERS
+============================================================
+The database has three logical layers.
+------------------------------------------------------------
+A. PUBLIC SCHEMA
+------------------------------------------------------------
+The public schema contains source/core business entities and behavioral data.
+
+Main tables:
+public.cities
+public.users
+public.sessions
+public.brands
+public.categories
+public.sellers
+public.products
+public.user_behavior_logs
+public.comments
+public.comment_aspects
+
+------------------------------------------------------------
+B. ANALYTICS SCHEMA
+------------------------------------------------------------
+The analytics schema contains calculated and aggregated behavioral features.
+
+Tables:
+analytics.feature_behavior
+analytics.feature_user
+analytics.feature_product
+analytics.feature_city
+analytics.feature_category
+analytics.feature_brand
+analytics.feature_user_product
+analytics.feature_user_category
+analytics.feature_product_sentiment
+analytics.feature_product_aspect
+analytics.feature_brand_sentiment
+analytics.feature_category_sentiment
+analytics.feature_aspect
+analytics.feature_time
+
+------------------------------------------------------------
+C. KPI SCHEMA
+------------------------------------------------------------
+The kpi schema contains business-level KPI and dashboard-oriented tables.
+
+Tables:
+kpi.global_funnel
+kpi.product_360
+kpi.user_segments
+kpi.brand_diagnostics
+kpi.aspect_diagnostics
+kpi.rfm_segments
+kpi.ml_user_clusters
+kpi.daily_funnel
+kpi.top_products_30d
+kpi.top_brands_30d
+
+============================================================
+3. CORE DATABASE SCHEMA
+============================================================
+------------------------------------------------------------
+public.cities
+------------------------------------------------------------
+Purpose:
+City dimension.
+
+Columns:
+
+city_id
+    Primary key.
+
+name
+    City name.
+
+------------------------------------------------------------
+public.users
+------------------------------------------------------------
+Purpose:User dimension.
+
+Columns:
+user_id
+    Primary key.
+------------------------------------------------------------
+public.sessions
+------------------------------------------------------------
+Purpose:User browsing/session information.
+
+Columns:
+
+session_id
+    Primary key.
+
+user_id
+    Foreign key -> public.users.user_id
+
+city_id
+    Foreign key -> public.cities.city_id
+
+Relationships:
+
+sessions.user_id -> users.user_id
+sessions.city_id -> cities.city_id
+------------------------------------------------------------
+public.brands
+------------------------------------------------------------
+Purpose:Brand dimension.
+
+Columns:
+
+brand_id
+    Primary key.
+
+name
+    Brand name.
+------------------------------------------------------------
+public.categories
+------------------------------------------------------------
+Purpose:
+Product category hierarchy.
+
+Columns:
+category_id
+    Primary key.
+
+category1
+    Main category.
+
+category2
+    Secondary category.
+
+sub_category
+    Sub-category.
+
+------------------------------------------------------------
+public.sellers
+------------------------------------------------------------
+Purpose:Seller dimension.
+
+Columns:
+seller_id
+    Primary key.
+
+seller_title
+    Seller name/title.
+
+------------------------------------------------------------
+public.products
+------------------------------------------------------------
+Purpose:Product master table.
+
+Columns:
+id
+    Primary key. Product ID.
+
+title_fa
+    Persian product title.
+
+brand_id
+    Foreign key -> public.brands.brand_id
+
+category_id
+    Foreign key -> public.categories.category_id
+
+seller_id
+    Foreign key -> public.sellers.seller_id
+
+price
+    Current product price.
+
+min_price_last_month
+    Minimum product price during the previous month.
+
+is_fake
+    Whether the product is marked as fake.
+
+rate
+    Product rating.
+
+rate_cnt
+    Number of ratings.
+
+Important:Product attributes such as title, price, brand, category, and seller remain in public.products.
+
+------------------------------------------------------------
+public.user_behavior_logs
+------------------------------------------------------------
+Purpose:
+Raw user behavioral event table.
+
+Columns:
+log_id
+    Primary key.
+
+session_id
+    Foreign key -> public.sessions.session_id
+
+product_id
+    Foreign key -> public.products.id
+
+event_type
+    Behavioral event type.
+
+timestamp
+    Event timestamp.
+
+Known event types include:
+view
+add_to_cart
+remove_from_cart
+purchase
+
+IMPORTANT:
+This table has ONE ROW PER BEHAVIOR EVENT.
+Do not assume that one row represents one user, one session, or one product overall.
+
+------------------------------------------------------------
+public.comments
+------------------------------------------------------------
+
+Purpose:
+Product-level customer comments/reviews.
+
+Columns:
+
+id
+    Primary key.
+
+product_id
+    Foreign key -> public.products.id
+
+is_buyer
+    Whether the reviewer is a verified buyer.
+
+rate
+    Rating given in the comment.
+
+recommendation_status
+    Recommendation status.
+
+likes
+    Number of likes.
+
+dislikes
+    Number of dislikes.
+
+raw_text_normalized
+    Normalized comment text.
+
+created_at
+    Comment creation timestamp.
+
+IMPORTANT:
+
+The comment text is stored in raw_text_normalized.
+
+Use comments for analytical questions such as:
+- comment counts
+- ratings
+- sentiment analysis
+- aspect analysis
+
+Do not perform vector search or embedding operations in SQL analytics queries.
+------------------------------------------------------------
+public.comment_aspects
+------------------------------------------------------------
+Purpose:
+Aspect-Based Sentiment Analysis (ABSA) results extracted from comments.
+
+Columns:
+
+aspect_id
+    Primary key.
+
+comment_id
+    Foreign key -> public.comments.id
+
+term
+    Aspect term.
+
+sentiment
+    Aspect sentiment.
+
+negative_pct
+    Negative sentiment probability/percentage.
+
+neutral_pct
+    Neutral sentiment probability/percentage.
+
+positive_pct
+    Positive sentiment probability/percentage.
+
+Relationships:
+
+comment_aspects.comment_id -> comments.id
+
+One comment can have multiple aspect rows.
+
+Therefore:
+
+ONE comment
+    ->
+MANY comment_aspects rows
+
+============================================================
+4. CORE RELATIONSHIP GRAPH
+============================================================
+
+Use these relationships when necessary:
+
+
+users
+    |
+    | user_id
+    v
+sessions
+    |
+    | session_id
+    v
+user_behavior_logs
+    |
+    | product_id
+    v
+products
+    |
+    +---- brand_id ------> brands
+    |
+    +---- category_id ---> categories
+    |
+    +---- seller_id -----> sellers
+
+
+sessions
+    |
+    +---- city_id -------> cities
+
+
+products
+    |
+    | products.id = comments.product_id
+    v
+comments
+    |
+    | comments.id = comment_aspects.comment_id
+    v
+comment_aspects
+
+IMPORTANT JOIN RULE:
+
+To connect behavior logs to users:
+
+public.user_behavior_logs
+    -> public.sessions
+    -> public.users
+
+Join:
+user_behavior_logs.session_id = sessions.session_id
+sessions.user_id = users.user_id
+
+To connect behavior logs to city:
+
+public.user_behavior_logs
+    -> public.sessions
+    -> public.cities
+
+Join:sessions.city_id = cities.city_id
+
+To connect behavior logs to brand/category/seller:
+
+public.user_behavior_logs
+    -> public.products
+    -> public.brands/categories/sellers
+
+Join:
+user_behavior_logs.product_id = products.id
+products.brand_id = brands.brand_id
+products.category_id = categories.category_id
+products.seller_id = sellers.seller_id
+
+To connect comments to product:
+
+public.comments
+    -> public.products
+
+Join:comments.product_id = products.id
+
+To connect comment aspects:
+
+public.comment_aspects
+    -> public.comments
+
+Join:comment_aspects.comment_id = comments.id
+============================================================
+TABLE GRAIN RULES
+============================================================
+Always preserve the original grain of every table.
+Table grains:
+public.user_behavior_logs:event level (one row per behavior event)
+public.comments:comment level (one row per comment)
+public.comment_aspects:aspect level (many rows per comment)
+analytics.feature_user:user level
+analytics.feature_product:product level
+analytics.feature_brand_sentiment:brand level
+analytics.feature_category_sentiment:category level
+analytics.feature_product_sentiment:product level
+analytics.feature_user_product:user-product level
+analytics.feature_user_category:user-category level
+analytics.feature_time:hour-weekday level
+
+Analytics tables contain precomputed aggregated features, not raw events.
+
+JOIN AND AGGREGATION RULES:
+Before aggregating after JOIN:
+1. Check whether the JOIN changes the grain.
+2. Prevent duplication of higher-grain metrics.
+3. Use DISTINCT counting or pre-aggregation when required.
+
+Prefer:
+- existing KPI/feature metrics
+- pre-aggregation before JOIN
+- COUNT(DISTINCT ...)
+- highest available grain table
+Never SUM, AVG, or COUNT metrics from an aggregated table after joining it with a lower-grain table unless duplication is explicitly handled.
+============================================================
+5. ANALYTICS FEATURE TABLES
+============================================================
+The analytics schema contains calculated features.
+IMPORTANT:
+Analytics tables are NOT raw tables.
+They contain aggregated/calculated information.
+Always respect their grain.
+
+------------------------------------------------------------
+analytics.feature_behavior
+------------------------------------------------------------
+Grain:ONE ROW PER BEHAVIOR LOG.
+Key:log_id
+
+Columns:
+log_id
+hour
+day
+month
+weekday
+is_weekend
+is_view
+is_cart
+is_remove
+is_purchase
+
+Definitions:
+is_view = 1 when event_type = 'view'
+is_cart = 1 when event_type = 'add_to_cart'
+is_remove = 1 when event_type = 'remove_from_cart'
+is_purchase = 1 when event_type = 'purchase'
+is_weekend = 1 for Thursday and Friday.
+Iran weekend definition:
+
+Thursday = ISO weekday 4
+Friday   = ISO weekday 5
+
+------------------------------------------------------------
+analytics.feature_user
+------------------------------------------------------------
+Grain:ONE ROW PER USER.
+Key:user_id
+
+Important columns:
+total_events
+total_sessions
+active_days
+total_views
+total_cart_adds
+total_removes
+total_purchases
+avg_session_events
+max_session_events
+avg_session_duration_minutes
+max_session_duration_minutes
+weekend_activity_ratio
+morning_activity_ratio
+afternoon_activity_ratio
+evening_activity_ratio
+night_activity_ratio
+preferred_hour
+preferred_weekday
+unique_products_viewed
+unique_products_purchased
+cities_visited
+total_spend
+avg_purchase_value
+min_purchase_price
+max_purchase_price
+purchase_frequency
+purchase_days
+brand_diversity
+category_diversity
+
+IMPORTANT:
+This table is already aggregated to user level.
+Do NOT join it directly to behavior logs unless there is a specific analytical reason.
+Do NOT SUM user-level metrics after joining to a lower-grain table unless double counting is intentionally handled.
+------------------------------------------------------------
+analytics.feature_product
+------------------------------------------------------------
+Grain:ONE ROW PER PRODUCT.
+Key:product_id
+
+Columns:
+total_events
+total_views
+total_cart_adds
+total_removes
+total_purchases
+unique_viewers
+unique_carters
+unique_buyers
+total_sessions
+price_drop_ratio
+
+IMPORTANT:Product identity information such as title, brand, category and seller must be obtained from public.products.
+------------------------------------------------------------
+analytics.feature_city
+------------------------------------------------------------
+Grain:ONE ROW PER CITY.
+Key:city_id
+
+Columns:
+total_users
+total_sessions
+total_events
+total_views
+total_cart_adds
+total_purchases
+total_removes
+unique_products_viewed
+unique_products_purchased
+------------------------------------------------------------
+analytics.feature_category
+------------------------------------------------------------
+Grain:ONE ROW PER CATEGORY.
+Key:category_id
+
+Columns:
+total_events
+total_views
+total_cart_adds
+total_purchases
+total_removes
+unique_viewers
+unique_buyers
+avg_product_price
+------------------------------------------------------------
+analytics.feature_brand
+------------------------------------------------------------
+Grain:ONE ROW PER BRAND.
+Key:brand_id
+
+Columns:
+total_events
+total_views
+total_cart_adds
+total_purchases
+total_removes
+unique_viewers
+unique_buyers
+------------------------------------------------------------
+analytics.feature_user_product
+------------------------------------------------------------
+Grain:ONE ROW PER USER / PRODUCT.
+
+Composite key:
+user_id
+product_id
+
+Columns:
+total_events
+view_count
+cart_count
+remove_count
+purchase_count
+active_days
+session_count
+------------------------------------------------------------
+analytics.feature_user_category
+------------------------------------------------------------
+Grain:ONE ROW PER USER / CATEGORY.
+
+Composite key:
+user_id
+category_id
+
+Columns:
+total_events
+view_count
+cart_count
+remove_count
+purchase_count
+category_spend
+view_share
+purchase_share
+spend_share
+
+Definitions:
+view_share =category views / total user views
+purchase_share =category purchases / total user purchases
+spend_share =category spend / total user spend
+------------------------------------------------------------
+analytics.feature_product_sentiment
+------------------------------------------------------------
+Grain:ONE ROW PER PRODUCT.
+Key:product_id
+
+Columns:
+comment_count
+avg_rate
+avg_like_ratio
+total_likes
+total_dislikes
+total_aspect_mentions
+positive_aspect_mentions
+negative_aspect_mentions
+neutral_aspect_mentions
+avg_positive_pct
+avg_negative_pct
+avg_neutral_pct
+positive_aspect_ratio
+negative_aspect_ratio
+neutral_aspect_ratio
+
+Definitions:
+positive_aspect_ratio =positive_aspect_mentions / total_aspect_mentions
+negative_aspect_ratio =negative_aspect_mentions / total_aspect_mentions
+neutral_aspect_ratio =neutral_aspect_mentions / total_aspect_mentions
+------------------------------------------------------------
+analytics.feature_product_aspect
+------------------------------------------------------------
+Grain:ONE ROW PER PRODUCT / ASPECT.
+
+Keys:
+product_id
+term
+
+Columns:
+total_mentions
+positive_mentions
+negative_mentions
+neutral_mentions
+avg_negative_pct
+avg_neutral_pct
+avg_positive_pct
+------------------------------------------------------------
+analytics.feature_brand_sentiment
+------------------------------------------------------------
+Grain:ONE ROW PER BRAND.
+Key:brand_id
+
+Columns:
+total_comments
+total_aspect_mentions
+positive_aspect_mentions
+negative_aspect_mentions
+neutral_aspect_mentions
+avg_comment_rating
+total_likes
+total_dislikes
+------------------------------------------------------------
+analytics.feature_category_sentiment
+------------------------------------------------------------
+Grain:ONE ROW PER CATEGORY.
+Key:category_id
+
+Columns:
+total_comments
+total_aspect_mentions
+positive_aspect_mentions
+negative_aspect_mentions
+neutral_aspect_mentions
+avg_comment_ratin
+total_likes
+total_dislikes
+
+------------------------------------------------------------
+analytics.feature_aspect
+------------------------------------------------------------
+Grain:ONE ROW PER ASPECT TERM.
+Key:term
+
+Columns:
+total_mentions
+positive_mentions
+negative_mentions
+neutral_mentions
+avg_negative_pct
+avg_neutral_pct
+avg_positive_pct
+------------------------------------------------------------
+analytics.feature_time
+------------------------------------------------------------
+Grain:ONE ROW PER HOUR / ISO WEEKDAY.
+
+Composite key:
+hour
+iso_weekday
+
+Columns:
+total_events
+total_views
+total_cart_adds
+total_purchases
+total_removes
+
+6. KPI OBJECTS (VIEWS + TABLES)
+============================================================
+
+The KPI schema contains business-level precomputed metrics.
+
+KPI objects can be:
+- Views
+- Tables
+
+If a requested metric exists in KPI objects, always prefer KPI objects.
+
+Never recalculate KPI metrics from lower-grain tables unless explicitly requested.
+
+Always respect KPI object grain.
+
+============================================================
+KPI VIEWS
+============================================================
+
+The following KPI objects are views:
+
+kpi.global_funnel
+kpi.product_360
+kpi.user_segments
+kpi.brand_diagnostics
+kpi.aspect_diagnostics
+kpi.rfm_segments
+kpi.daily_funnel
+kpi.top_products_30d
+kpi.top_brands_30d
+
+
+============================================================
+KPI TABLES
+============================================================
+
+The following KPI objects are physical tables:
+
+kpi.ml_user_clusters
+============================================================
+kpi.global_funnel
+============================================================
+Purpose:Global funnel metrics.
+Grain:ONE ROW PER PLATFORM
+
+Columns:
+total_views
+total_carts
+total_purchases
+total_removes
+view_to_cart_pct
+cart_to_purchase_pct
+overall_conversion_pct
+cart_abandonment_pct
+
+Metrics:
+view_to_cart_pct = total_carts / total_views * 100
+cart_to_purchase_pct = total_purchases / total_carts * 100
+overall_conversion_pct = total_purchases / total_views * 100
+cart_abandonment_pct = (total_carts - total_purchases) / total_carts * 100
+============================================================
+kpi.product_360
+============================================================
+Purpose:Complete product performance view.
+Grain:ONE ROW PER PRODUCT
+
+Columns:
+product_id
+title_fa
+price
+total_views
+total_purchases
+total_revenue
+conversion_rate
+comment_count
+star_rating
+positive_sentiment_pct
+sentiment_score
+managerial_action_tag
+
+Rules:
+total_revenue definition:
+total_revenue =total_purchases * current product price
+This metric is calculated inside the KPI view.
+Do not recalculate from raw behavior logs unless explicitly requested.
+Metrics:
+conversion_rate =
+total_purchases / total_views * 100
+
+positive_sentiment_pct =
+positive_aspect_ratio * 100
+
+sentiment_score =
+(positive_aspect_ratio - negative_aspect_ratio) * 100
+
+managerial_action_tag values:
+Hero Product
+High Traffic, Low Conversion
+High Risk
+Needs Reviews
+Normal
+============================================================
+kpi.user_segments
+============================================================
+Purpose:User behavioral segmentation.
+Grain:ONE ROW PER USER
+
+Columns:
+user_id
+active_days
+total_views
+total_purchases
+total_spend
+user_segment
+user_conversion_pct
+
+Metrics:
+user_conversion_pct =
+total_purchases / total_views * 100
+
+Segments:
+
+VIP Customer:
+total_purchases >= 5
+AND total_spend > 10000000
+
+Returning Customer:
+total_purchases > 1
+AND total_purchases < 5
+
+One-Time Buyer:total_purchases = 1
+Window Shopper:
+total_purchases = 0
+AND total_views > 20
+Low Engagement:remaining users
+
+============================================================
+kpi.brand_diagnostics
+============================================================
+Purpose:Brand performance and sentiment.
+Grain:ONE ROW PER BRAND
+
+Columns:
+brand_id
+brand_name
+total_views
+total_purchases
+total_comments
+avg_rating
+brand_sentiment_score
+
+Metric:
+brand_sentiment_score =
+((positive_aspect_mentions - negative_aspect_mentions)
+/
+total_aspect_mentions) * 100
+
+============================================================
+kpi.aspect_diagnostics
+============================================================
+Purpose:Aspect-level customer issue analysis.
+Grain:ONE ROW PER ASPECT
+
+Columns:
+aspect_name
+total_mentions
+positive_mentions
+negative_mentions
+negative_impact_pct
+aspect_status
+
+Metric:
+negative_impact_pct =
+negative_mentions / total_mentions * 100
+
+Status:
+Critical Weakness:negative_ratio > 0.6
+Key Strength:positive_ratio > 0.7
+Neutral:otherwise
+============================================================
+kpi.rfm_segments
+============================================================
+Purpose:Customer value segmentation.
+Grain:ONE ROW PER USER
+
+Columns:
+user_id
+recency_days
+frequency
+monetary
+rfm_code
+rfm_label
+
+Definitions:
+recency_days = days since last activity
+frequency = purchase count
+monetary = total spending
+
+Labels:
+vip
+promising
+at_risk
+lost
+regular
+
+============================================================
+kpi.daily_funnel
+============================================================
+Purpose:Daily funnel trends.
+Grain:ONE ROW PER DAY
+
+Columns:
+event_date
+total_views
+total_carts
+total_purchases
+total_removes
+view_to_cart_pct
+cart_to_purchase_pct
+overall_conversion_pct
+cart_abandonment_pct
+
+============================================================
+kpi.top_products_30d
+============================================================
+Purpose:Product ranking for latest 30 days.
+Grain:ONE ROW PER PRODUCT
+
+Columns:
+product_id
+product_name
+price
+total_views_30d
+total_carts_30d
+total_purchases_30d
+total_removes_30d
+total_revenue_30d
+conversion_rate_30d
+
+Metrics:
+total_revenue_30d =
+total_purchases_30d * price
+
+conversion_rate_30d =
+total_purchases_30d / total_views_30d * 100
+
+
+============================================================
+kpi.top_brands_30d
+============================================================
+Purpose:Brand ranking for latest 30 days.
+Grain:ONE ROW PER BRAND
+
+Columns:
+brand_id
+brand_name
+total_views_30d
+total_carts_30d
+total_purchases_30d
+total_removes_30d
+total_revenue_30d
+conversion_rate_30d
+
+Metrics:
+conversion_rate_30d =
+total_purchases_30d / total_views_30d * 100
