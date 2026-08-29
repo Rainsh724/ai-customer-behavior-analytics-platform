@@ -30,10 +30,13 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any
-
+from production_validator import ProductionSQLValidator
 from .db import run_readonly_query
 
 logger = logging.getLogger(__name__)
+
+# ساخت نمونه گلوبال از اعتبارسنج پیشرفته
+sql_validator = ProductionSQLValidator(dialect="postgres")
 
 # ============================================================
 # SCHEMA CONTEXT -- دقیقاً همون جدول/ستون‌هایی که در
@@ -43,6 +46,7 @@ logger = logging.getLogger(__name__)
 # به tools.py) تا Agent در همون اولین و تنها تماسش بتونه SQL معتبر
 # بنویسه -- دیگه هیچ تماس LLM دومی برای "ترجمه‌ی نیاز به SQL" نداریم.
 # ============================================================
+
 
 
 SCHEMA_CONTEXT = """
@@ -133,23 +137,24 @@ def _validate_sql(sql: str) -> str | None:
     return None
 
 
+
 def run_sql_tool(sql: str) -> dict[str, Any]:
     """
-    ورودی: متن SQL که خودِ Agent (نه یک زیرایجنت پنهان) در آرگومان
-    tool_sql نوشته.
+    ورودی: متن SQL که خودِ Agent در آرگومان tool_sql نوشته.
     خروجی: dict که مستقیم به‌صورت JSON در پیام "tool" به Agent برمی‌گرده؛
-    اگه کلید "error" داشته باشه، Agent خودش (طبق سند معماری) با یک
-    tool_call جدید و SQL اصلاح‌شده دوباره تلاش می‌کنه -- این تلاش مجدد
-    یکی از دورهای عادی حلقه‌ی agent<->tools حساب می‌شه (به
-    consecutive_tool_errors/iterations هم می‌خوره، نگاه کن به
-    nodes.py).
+    اگه کلید "error" داشته باشه، Agent خودش با یک tool_call جدید و SQL اصلاح‌شده دوباره تلاش می‌کنه.
     """
     if not sql or not sql.strip():
         return {"error": "sql خالی بود."}
 
-    validation_error = _validate_sql(sql)
-    if validation_error:
-        return {"error": f"SQL نامعتبر: {validation_error}", "rejected_sql": sql}
+    # اعتبارسنجی دقیق و ساختاری کوئری به جای ریجکس ساده
+    is_valid, validation_errors = sql_validator.validate(sql)
+    if not is_valid:
+        error_message = " | ".join(validation_errors)
+        return {
+            "error": f"SQL نامعتبر (خطای ساختاری/کاردینالیتی): {error_message}",
+            "rejected_sql": sql
+        }
 
     try:
         rows = run_readonly_query(sql)
@@ -162,8 +167,6 @@ def run_sql_tool(sql: str) -> dict[str, Any]:
         "rows": rows,
         "row_count": len(rows),
     }
-
-
 
 
 
