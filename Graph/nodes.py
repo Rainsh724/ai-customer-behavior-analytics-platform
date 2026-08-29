@@ -9,7 +9,7 @@ from typing import Any, Callable
 from .state import GraphState
 from .llm_client import call_llm_with_tools
 from .tools import TOOL_DEFINITIONS, execute_tool_call
-from .audit import validate_answer
+from .audit import validate_answer, correct_answer as _real_correct_answer
 
 logger = logging.getLogger(__name__)
 
@@ -186,8 +186,10 @@ def finalize_node(state: GraphState) -> dict[str, Any]:
 # ============================================================
 # نود VALIDATE -- بررسی نرم و مستقل (نگاه کن به audit.py)
 # ============================================================
-# جواب کاربر از finalize قبلاً نهایی شده؛ این نود فقط برای ممیزی/لاگه و
-# نتیجه‌اش state["final_answer"] رو دستکاری نمی‌کنه.
+# جواب کاربر از finalize قبلاً نهایی شده؛ این نود فقط ممیزی می‌کنه و
+# نمره می‌ده (match_score). خودِ این نود دیگه final_answer رو دستکاری
+# نمی‌کنه -- تصمیم "آیا لازمه اصلاح بشه یا نه" در graph.py::
+# route_after_validate گرفته می‌شه، بر اساس همین match_score.
 
 @safe_node("validate")
 def validate_node(state: GraphState) -> dict[str, Any]:
@@ -202,3 +204,38 @@ def validate_node(state: GraphState) -> dict[str, Any]:
         "validation": validation,
         **({"errors": extra_errors} if extra_errors else {}),
     }
+
+
+def _extract_last_user_question(messages: list[dict[str, Any]]) -> str:
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            return msg.get("content", "") or ""
+    return ""
+
+
+# ============================================================
+# نود CORRECT_ANSWER -- اصلاح یک‌باره (نگاه کن به audit.py)
+# ============================================================
+# فقط وقتی به اینجا می‌رسیم که graph.py::route_after_validate تشخیص داده
+# match_score زیر آستانه (پیش‌فرض ۷۰) بوده. این نود مستقیم به END می‌ره
+# (نگاه کن به graph.py) -- هرگز به validate یا agent برنمی‌گرده، پس
+# امکان لوپ اصلاح/تغییر وجود نداره: حداکثر یک بار جواب بازنویسی می‌شه.
+
+@safe_node("correct_answer")
+def correct_answer_node(state: GraphState) -> dict[str, Any]:
+    validation = state.get("validation", {})
+    warnings = validation.get("warnings") or []
+    question = _extract_last_user_question(state.get("messages", []))
+
+    corrected = _real_correct_answer(
+        question=question,
+        final_answer=state.get("final_answer", ""),
+        warnings=warnings,
+        tool_trace=state.get("tool_trace", []),
+    )
+
+    return {
+        "final_answer": corrected,
+        "errors": [f"correct_answer: جواب یک‌بار اصلاح شد (match_score={validation.get('match_score')} زیر آستانه)"],
+    }
+

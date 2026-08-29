@@ -1,11 +1,17 @@
 ## PATH: app/graph/tools.py
 """
-تعریف سه ابزار (Tool_SQL / Tool_RAG / Tool_BI) به فرمت OpenAI function-
-calling، + یک dispatcher که اسم ابزار و آرگومان‌هاش (که از خروجی LLM
-می‌رسه) رو می‌گیره و پیاده‌سازی واقعی مربوطه رو صدا می‌زنه.
+تعریف ابزارهای Agent به فرمت OpenAI function-calling، + یک dispatcher که
+اسم ابزار و آرگومان‌هاش (که از خروجی LLM می‌رسه) رو می‌گیره و پیاده‌سازی
+واقعی مربوطه رو صدا می‌زنه.
+
+ابزارهای فعال فعلی: tool_sql / tool_rag / tool_chart.
+ابزار غیرفعال (منتظر آماده‌شدن محتوا): tool_knowledge_base -- پایین همین
+فایل، هم در TOOL_DEFINITIONS هم در execute_tool_call، عمداً به‌صورت کامنت
+نگه داشته شده. نگاه کن به knowledge_base_agent.py برای توضیح کامل و
+نحوه‌ی فعال‌سازی.
 
 نکته درباره‌ی description تکراری اسکیما: SCHEMA_CONTEXT فقط یک‌بار، در
-description ابزار tool_sql، کامل نوشته می‌شه. description ابزار tool_bi
+description ابزار tool_sql، کامل نوشته می‌شه. description ابزار tool_chart
 فقط یک ارجاع کوتاه بهش داره -- چون همه‌ی تعریف‌های ابزار (TOOL_DEFINITIONS)
 در یک تماس واحد به مدل داده می‌شن، مدل از قبل توی همون تماس اسکیما رو
 دیده؛ تکرار کاملش فقط توکن اضافه مصرف می‌کنه.
@@ -17,7 +23,10 @@ from typing import Any
 
 from .sql_agent import run_sql_tool, SCHEMA_CONTEXT
 from .vector_retriever import run_rag_tool
-from .bi_agent import run_bi_tool, VALID_CHART_TYPES
+from .chart_agent import run_chart_tool, VALID_CHART_TYPES
+
+# وقتی knowledge_base_agent.py آماده شد، این ایمپورت رو هم از حالت کامنت خارج کن:
+# from .knowledge_base_agent import run_knowledge_base_tool
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +98,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "tool_bi",
+            "name": "tool_chart",
             "description": (
                 "وقتی کاربر صریحاً نمودار/چارت/داشبورد/مصورسازی خواسته، یک "
                 "نمودار واقعی از داده‌ی دیتابیس می‌سازه و در سه فرمت آماده‌ی "
@@ -126,6 +135,36 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
+
+    # ============================================================
+    # tool_knowledge_base -- غیرفعال تا آماده شدن محتوای پایگاه‌دانش.
+    # وقتی knowledge_base_agent.py پیاده‌سازی شد، این بلوک رو از حالت
+    # کامنت خارج کن (و همراهش execute_tool_call پایین + قانون مربوطه در
+    # main.py::AGENT_SYSTEM_PROMPT).
+    # ============================================================
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": "tool_knowledge_base",
+    #         "description": (
+    #             "جست‌وجو در پایگاه‌دانش آموزشی درباره‌ی چطور باید پیشنهاد "
+    #             "مدیریتی داد (چارچوب‌ها/اصول تحلیل کسب‌وکار). قبل از دادن "
+    #             "هرگونه پیشنهاد یا توصیه‌ی مدیریتی به کاربر، حتماً این ابزار "
+    #             "رو صدا بزن تا پیشنهادت رو بر اساس این دانش + دانش عمومی "
+    #             "خودت بسازی، نه فقط از حافظه‌ی خودت."
+    #         ),
+    #         "parameters": {
+    #             "type": "object",
+    #             "properties": {
+    #                 "query": {
+    #                     "type": "string",
+    #                     "description": "موضوع/سوالی که باید در پایگاه‌دانش جست‌وجو بشه.",
+    #                 }
+    #             },
+    #             "required": ["query"],
+    #         },
+    #     },
+    # },
 ]
 
 
@@ -147,14 +186,17 @@ def execute_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
                 product_id=arguments.get("product_id"),
             )
 
-        if name == "tool_bi":
-            return run_bi_tool(
+        if name == "tool_chart":
+            return run_chart_tool(
                 sql=arguments.get("sql", ""),
                 chart_type=arguments.get("chart_type", "bar"),
                 title=arguments.get("title"),
                 x_field=arguments.get("x_field"),
                 y_field=arguments.get("y_field"),
             )
+
+        # if name == "tool_knowledge_base":
+        #     return run_knowledge_base_tool(query=arguments.get("query", ""))
 
         return {"error": f"ابزار ناشناخته: {name}"}
 

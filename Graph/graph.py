@@ -9,9 +9,11 @@ from .nodes import (
     tools_node,
     finalize_node,
     validate_node,
+    correct_answer_node,
     MAX_ITERATIONS,
     MAX_CONSECUTIVE_TOOL_ERRORS,
 )
+from .audit import CORRECTION_THRESHOLD
 
 
 # ============================================================
@@ -46,6 +48,33 @@ def route_after_agent(state: GraphState) -> str:
     return "finalize"
 
 
+def route_after_validate(state: GraphState) -> str:
+    """
+    یال شرطی خروجی از Validate -- تصمیم می‌گیره جواب نیاز به اصلاح داره
+    یا نه، بر اساس match_score که audit.py برمی‌گردونه.
+
+    نکته‌ی امنیتی مهم: این تابع هرگز به "validate" برنمی‌گرده -- فقط دو
+    مقصد ممکن داره: "ok" (مستقیم END) یا "correct" (correct_answer، که
+    خودش هم مستقیم به END می‌ره، نه به validate یا agent). یعنی حتی اگه
+    جواب اصلاح‌شده هم کامل grounded نباشه، تلاش دومی برای اصلاح یا
+    ممیزی مجدد وجود نداره -- حداکثر یک تماس اضافه‌ی LLM به‌ازای هر پاسخ.
+
+    اگه validation خاموش بود (VALIDATION_ENABLED=false) یا match_score
+    به هر دلیلی نداشتیم (مثلاً خودِ تماس validate شکست خورد)، فیل-سیف
+    "ok" برمی‌گردونیم -- بدون امتیاز، نمی‌شه تصمیم به اصلاح گرفت.
+    """
+    validation = state.get("validation", {})
+
+    if validation.get("skipped"):
+        return "ok"
+
+    match_score = validation.get("match_score")
+    if match_score is not None and match_score < CORRECTION_THRESHOLD:
+        return "correct"
+
+    return "ok"
+
+
 # ============================================================
 # BUILD GRAPH
 # ============================================================
@@ -58,6 +87,7 @@ def build_graph():
     builder.add_node("tools", tools_node)
     builder.add_node("finalize", finalize_node)
     builder.add_node("validate", validate_node)
+    builder.add_node("correct_answer", correct_answer_node)
 
     # یال ورود: درخواست اولیه‌ی کاربر (که main.py قبلاً به‌عنوان یک پیام
     # "user" به state["messages"] اضافه کرده) مستقیم به نود Agent می‌ره.
@@ -79,10 +109,19 @@ def build_graph():
     # چندمرحله‌ای رو، بدون نیاز به هیچ نود میانی دیگه، پیاده می‌کنه.
     builder.add_edge("tools", "agent")
 
-    # finalize قبلاً جواب نهایی رو قطعی کرده؛ validate فقط برای ممیزی/لاگه
-    # (نگاه کن به audit.py) و final_answer رو دستکاری نمی‌کنه.
+    # finalize قبلاً جواب نهایی رو قطعی کرده؛ validate ممیزی می‌کنه و
+    # امتیاز می‌ده. اگه امتیاز پایین بود، یک‌بار (و فقط یک‌بار --
+    # correct_answer مستقیم به END می‌ره، نه به validate) اصلاح می‌شه.
     builder.add_edge("finalize", "validate")
-    builder.add_edge("validate", END)
+    builder.add_conditional_edges(
+        "validate",
+        route_after_validate,
+        {
+            "ok": END,
+            "correct": "correct_answer",
+        },
+    )
+    builder.add_edge("correct_answer", END)
 
     return builder.compile()
 

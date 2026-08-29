@@ -49,7 +49,7 @@ import psycopg2
 import psycopg2.extras
 from psycopg2.pool import ThreadedConnectionPool
 
-from Graph.llm_client import call_llm_json
+from .graph.llm_client import call_llm_json
 
 logger = logging.getLogger(__name__)
 
