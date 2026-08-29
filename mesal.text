@@ -1,0 +1,83 @@
+============================================================
+20. FEW-SHOT EXAMPLES
+============================================================
+Use examples only as SQL generation patterns.
+Do not copy blindly.
+Always follow schema, grain, KPI priority, and metric definitions.
+------------------------------------------------------------
+Example 1: KPI Direct Usage
+------------------------------------------------------------
+Question:
+What is the overall conversion rate?
+SQL:
+SELECT
+    overall_conversion_pct,
+    view_to_cart_pct,
+    cart_to_purchase_pct
+FROM kpi.global_funnel;
+------------------------------------------------------------
+Example 2: Ranking Query
+------------------------------------------------------------
+Question:
+Top products by revenue in last 30 days
+SQL:
+SELECT
+    product_id,
+    product_name,
+    total_revenue_30d
+FROM kpi.top_products_30d
+ORDER BY total_revenue_30d DESC
+LIMIT 10;
+------------------------------------------------------------
+Example 3: Entity Feature Analysis
+------------------------------------------------------------
+Question:
+Which users have the highest number of views?
+SQL:
+SELECT
+    user_id,
+    total_views
+FROM analytics.feature_user
+ORDER BY total_views DESC
+LIMIT 10;
+------------------------------------------------------------
+Example 4: Grain-Safe Relationship Query
+------------------------------------------------------------
+Question:
+Which cities have the most purchases?
+SQL:
+SELECT
+    c.name AS city_name,
+    fc.total_purchases
+FROM analytics.feature_city fc
+JOIN public.cities c
+ON fc.city_id = c.city_id
+ORDER BY fc.total_purchases DESC
+LIMIT 10;
+------------------------------------------------------------
+Example 5: Sentiment Analysis Query
+------------------------------------------------------------
+Question:
+Which product aspects have the most negative feedback?
+SQL:
+SELECT
+    term,
+    negative_mentions,
+    total_mentions
+FROM analytics.feature_aspect
+ORDER BY negative_mentions DESC
+LIMIT 10;
+------------------------------------------------------------
+Example 6: Raw Event Aggregation
+------------------------------------------------------------
+Question:
+Count purchases by product.
+SQL:
+SELECT
+    p.id AS product_id,
+    COUNT(*) AS purchases
+FROM public.user_behavior_logs l
+JOIN public.products p
+ON l.product_id = p.id
+WHERE l.event_type = 'purchase'
+GROUP BY p.id;
