@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.graph.graph import get_graph
-from app import memory_store
+from Graph.graph import get_graph
+import memory_store
 
 # ============================================================
 # پرامپت سیستمی Agent -- شخصیت "مدیر ارشد" طبق سند معماری.
@@ -136,7 +136,7 @@ def run(
 
 
 def main() -> None:
-    result = run("چرا فروش محصول X در ماه جاری کاهش پیدا کرده؟", chat_id="demo-chat-1")
+    result = run("نظرات کاربران درمورد دفترچه یادداشت ها چطوره؟ افزایش فروش داشتیم؟", chat_id="demo-chat-1")
     print("\nFINAL ANSWER:")
     print(result.get("final_answer"))
 
@@ -153,7 +153,7 @@ def main() -> None:
     print("\n\n--- سوال ادامه‌دار با حافظه‌ی Postgres (chat_id) ---")
     print(followup.get("final_answer"))
 
-    chart_result = run("نمودار فروش ماهانه محصول X رو نشون بده")
+    chart_result = run("نمودار فروش ماهانه دفترچه یادداشت ها رو نشون بده")
     print("\n\n--- نمونه‌ی نمودار ---")
     print(chart_result.get("final_answer"))
 
