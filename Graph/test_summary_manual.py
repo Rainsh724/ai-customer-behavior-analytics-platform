@@ -13,7 +13,7 @@ text_summary.py رو مستقیم صدا می‌زنه، پس نیازی به ه
 نکته: text_summary.py رو باید کنار همین فایل (یا در PYTHONPATH) داشته
 باشی. اگه از پوشه‌ی app/graph/ کپیش کردی همین‌جا، مستقیم اجرا می‌شه.
 """
-from text_summary import summarize_comments
+from .text_summary import summarize_comments
 
 # ============================================================
 # ۱) نظرات خودتو اینجا بریز -- هرچقدر خواستی، هر جمله رو یک آیتم بذار.
