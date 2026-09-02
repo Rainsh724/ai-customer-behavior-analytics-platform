@@ -30,13 +30,27 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any
-from production_validator import ProductionSQLValidator
+from .production_validator import ProductionSQLValidator
 from .db import run_readonly_query
 
 logger = logging.getLogger(__name__)
 
-# ساخت نمونه گلوبال از اعتبارسنج پیشرفته
-sql_validator = ProductionSQLValidator(dialect="postgres")
+
+# ============================================================
+# اعتبارسنج SQL -- ترجیحاً production_validator (پیشرفته‌تر)، ولی اگه
+# در دسترس نبود (مثلاً این فایل جابه‌جا/گم شده)، کل برنامه نباید
+# ImportError بده و از کار بیفته -- فقط اعتبارسنجی regex-based داخلی
+# (پایین همین فایل) به‌عنوان fallback فعال می‌شه.
+# ============================================================
+try:
+    sql_validator = ProductionSQLValidator(dialect="postgres")
+except ImportError:
+    logger.warning(
+        "production_validator در دسترس نیست -- fallback به اعتبارسنج "
+        "داخلی (_validate_sql، پایین همین فایل) شد. برای اعتبارسنجی "
+        "کامل‌تر، production_validator.py رو در PYTHONPATH قرار بدید."
+    )
+    sql_validator = None
 
 # ============================================================
 # SCHEMA CONTEXT -- دقیقاً همون جدول/ستون‌هایی که در
@@ -138,6 +152,16 @@ def _validate_sql(sql: str) -> str | None:
 
 
 
+# سقف سخت تعداد ردیف برگشتی -- مستقل از اینکه Agent در متن SQL خودش
+# LIMIT گذاشته باشه یا نه. production_validator.py (که در اولویته)
+# اصلاً چک LIMIT نداره، پس بدون این سقف کدی، یک SELECT بی‌LIMIT (مثلاً
+# ILIKE روی یک کلمه‌ی پرتکرار) می‌تونه صدها ردیف خام رو مستقیم وارد
+# state["messages"] کنه و در تماس بعدی LLM با خطای context-length کرش
+# کنه -- دقیقاً همون اتفاقی که افتاد. این یک محافظ defense-in-depth
+# در سطح کد است، نه فقط یک دستورالعمل متنی به مدل.
+HARD_MAX_ROWS = 200
+
+
 def run_sql_tool(sql: str) -> dict[str, Any]:
     """
     ورودی: متن SQL که خودِ Agent در آرگومان tool_sql نوشته.
@@ -147,14 +171,20 @@ def run_sql_tool(sql: str) -> dict[str, Any]:
     if not sql or not sql.strip():
         return {"error": "sql خالی بود."}
 
-    # اعتبارسنجی دقیق و ساختاری کوئری به جای ریجکس ساده
-    is_valid, validation_errors = sql_validator.validate(sql)
-    if not is_valid:
-        error_message = " | ".join(validation_errors)
-        return {
-            "error": f"SQL نامعتبر (خطای ساختاری/کاردینالیتی): {error_message}",
-            "rejected_sql": sql
-        }
+    # اعتبارسنجی دقیق و ساختاری کوئری -- production_validator اگه در
+    # دسترس بود، وگرنه fallback به اعتبارسنج داخلی (regex-based).
+    if sql_validator is not None:
+        is_valid, validation_errors = sql_validator.validate(sql)
+        if not is_valid:
+            error_message = " | ".join(validation_errors)
+            return {
+                "error": f"SQL نامعتبر (خطای ساختاری/کاردینالیتی): {error_message}",
+                "rejected_sql": sql
+            }
+    else:
+        validation_error = _validate_sql(sql)
+        if validation_error:
+            return {"error": f"SQL نامعتبر: {validation_error}", "rejected_sql": sql}
 
     try:
         rows = run_readonly_query(sql)
@@ -162,11 +192,28 @@ def run_sql_tool(sql: str) -> dict[str, Any]:
         logger.warning("run_sql_tool: execution failed: %s", exc)
         return {"error": f"اجرای SQL شکست خورد: {exc}", "rejected_sql": sql}
 
-    return {
+    total_row_count = len(rows)
+    truncated = total_row_count > HARD_MAX_ROWS
+    if truncated:
+        logger.warning(
+            "run_sql_tool: %d ردیف برگشت، به %d ردیف بریده شد (SQL بدون LIMIT کافی): %s",
+            total_row_count, HARD_MAX_ROWS, sql,
+        )
+        rows = rows[:HARD_MAX_ROWS]
+
+    result: dict[str, Any] = {
         "sql_query": sql,
         "rows": rows,
         "row_count": len(rows),
     }
+    if truncated:
+        result["truncated"] = True
+        result["total_row_count_before_truncation"] = total_row_count
+        result["note"] = (
+            f"نتیجه {total_row_count} ردیف داشت و به {HARD_MAX_ROWS} ردیف اول بریده شد -- "
+            "اگه برای جواب نیاز به کل داده داری، کوئری رو با LIMIT/GROUP BY/aggregate مناسب‌تر دوباره بنویس."
+        )
+    return result
 
 
 

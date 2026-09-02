@@ -19,14 +19,20 @@ embedding space قابل‌قیاس نیستن.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
-from typing import Any
+import time
+from typing import Any, Callable, TypeVar
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 _client: OpenAI | None = None
 
@@ -52,21 +58,55 @@ EMBEDDING_MODEL_NAME = os.getenv(
     "intfloat/multilingual-e5-base",
 )
 
+# اگه Groq بگه "دوباره تلاش کن" (429)، به‌جای خطا دادن فوری، چند بار با
+# فاصله‌ی افزایشی (exponential backoff) دوباره امتحان می‌کنیم -- چون
+# rate limit یک خطای *موقت* و رایجه (خصوصاً روی tier رایگان/on_demand)،
+# نه یک خطای واقعی در کد یا کوئری. اگه بعد از همه‌ی تلاش‌ها بازم رد بشه،
+# خطا رو بالا می‌فرستیم تا safe_node (در nodes.py) بگیرتش.
+MAX_RATE_LIMIT_RETRIES = int(os.getenv("LLM_RATE_LIMIT_MAX_RETRIES", "4"))
+RATE_LIMIT_BASE_DELAY_SECONDS = float(os.getenv("LLM_RATE_LIMIT_BASE_DELAY", "2.0"))
+
+
+def _call_with_rate_limit_retry(fn: Callable[[], _T]) -> _T:
+    last_exc: RateLimitError | None = None
+    for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+        try:
+            return fn()
+        except RateLimitError as exc:
+            last_exc = exc
+            if attempt >= MAX_RATE_LIMIT_RETRIES:
+                break
+            wait_seconds = RATE_LIMIT_BASE_DELAY_SECONDS * (2 ** attempt)
+            logger.warning(
+                "Rate limit از Groq (تلاش %d/%d) -- %.1f ثانیه صبر می‌کنیم و دوباره امتحان می‌کنیم...",
+                attempt + 1,
+                MAX_RATE_LIMIT_RETRIES + 1,
+                wait_seconds,
+            )
+            time.sleep(wait_seconds)
+    assert last_exc is not None
+    raise last_exc
+
+
 def call_llm_json(system_prompt: str, user_prompt: str) -> dict[str, Any]:
     """
     یک تماس LLM که مجبورش می‌کنیم فقط JSON خروجی بده (response_format json_object).
     برای ابزارهای داخلی (مثل مولد SQL) استفاده می‌شه، نه برای خودِ Agent.
     """
     client = get_client()
-    resp = client.chat.completions.create(
-        model=CHAT_MODEL,
-        temperature=0,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
+
+    def _do_call():
+        return client.chat.completions.create(
+            model=CHAT_MODEL,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+
+    resp = _call_with_rate_limit_retry(_do_call)
     content = resp.choices[0].message.content or "{}"
     return json.loads(content)
 
@@ -128,8 +168,9 @@ def call_llm_with_tools(
     if tool_choice != "none":
         kwargs["tools"] = tools
         kwargs["parallel_tool_calls"] = True
-    resp = client.chat.completions.create(**kwargs)
-    
+
+    resp = _call_with_rate_limit_retry(lambda: client.chat.completions.create(**kwargs))
+
     return message_to_dict(
         resp.choices[0].message
     )
@@ -139,7 +180,31 @@ _embedding_model_lock = threading.Lock()
 
 
 def _get_embedding_model():
-    """Lazy-load the local sentence-transformers model (heavy import, keep it optional)."""
+    """
+    Lazy-load the local sentence-transformers model (heavy import, keep it
+    optional).
+
+    نکته درباره‌ی کند بودن اولین بار: sentence-transformers حتی وقتی وزن‌های
+    مدل قبلاً روی دیسک cache شدن، پیش‌فرض یک تماس شبکه‌ای به Hugging Face
+    Hub می‌زنه (برای چک کردن نسخه/متادیتا) -- دقیقاً همون چیزی که در لاگ
+    دیدید ("unauthenticated requests to HF Hub"). این تماس شبکه‌ای هم کند
+    و هم به rate limit عمومی HF محدوده. دو راه‌حل:
+
+        ۱. HF_TOKEN رو در .env بذار -- باعث میشه این تماس‌ها authenticated
+           باشن (سریع‌تر و بدون محدودیت نرخ عمومی).
+        ۲. بعد از اولین اجرای موفق (که مدل واقعاً دانلود و cache شده)،
+           HF_HUB_OFFLINE=1 رو ست کن -- کاملاً از زدن هر تماس شبکه‌ای صرف‌نظر
+           می‌کنه و مستقیم از cache محلی می‌خونه (سریع‌ترین حالت ممکنه).
+
+    نکته‌ی مهم‌تر درباره‌ی "هر بار طول می‌کشه": توی یک پردازه‌ی زنده (مثلاً
+    وقتی روی FastAPI/uvicorn بالا میاد)، این تابع فقط یک‌بار واقعاً مدل رو
+    لود می‌کنه (globals + lock بالا دقیقاً برای همینه) -- دفعات بعد از
+    همون شیء در حافظه استفاده می‌شه. اگه همچنان "هر بار" کند حس می‌شه،
+    یعنی دارید هر بار یک پردازه‌ی پایتون تازه اجرا می‌کنید (مثلاً هر بار
+    python3 main.py می‌زنید) -- راه‌حلش preload_embedding_model() پایینه:
+    یک‌بار در شروع سرویس (نه در وسط اولین درخواست کاربر) صداش بزن تا
+    کاربر منتظر لود مدل نمونه.
+    """
     global _embedding_model
     if _embedding_model is None:
         with _embedding_model_lock:
@@ -147,6 +212,16 @@ def _get_embedding_model():
                 from sentence_transformers import SentenceTransformer
                 _embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
     return _embedding_model
+
+
+def preload_embedding_model() -> None:
+    """
+    فراخوانی اختیاری برای لود کردن زودهنگام مدل embedding -- مثلاً در
+    startup سرویس FastAPI (نگاه کن به app/api.py) یا در ابتدای main.py،
+    تا لود کردن مدل (که چند ثانیه طول می‌کشه) وسط اولین سوال کاربر اتفاق
+    نیفته و کاربر منتظر نمونه.
+    """
+    _get_embedding_model()
 
 
 def embed_text(text: str) -> list[float]:

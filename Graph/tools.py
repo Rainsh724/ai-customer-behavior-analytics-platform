@@ -26,7 +26,12 @@ from .vector_retriever import run_rag_tool
 from .chart_agent import run_chart_tool, VALID_CHART_TYPES
 
 # وقتی knowledge_base_agent.py آماده شد، این ایمپورت رو هم از حالت کامنت خارج کن:
-# from .knowledge_base_agent import run_knowledge_base_tool
+# تا وقتی نسخه‌ی واقعی run_knowledge_base_tool توسط بقیه‌ی اعضا آماده بشه،
+# از پلیس‌هولدر موقت استفاده می‌کنیم تا گراف قابل دیباگ باشه.
+# TODO: وقتی نسخه‌ی واقعی آماده شد، این خط رو به
+#   from .knowledge_base_agent import run_knowledge_base_tool
+# تغییر بده و در execute_tool_call پایین هم فراخوانی رو عوض کن.
+from .knowledge_base_agent import run_knowledge_base_tool_debug_placeholder as run_knowledge_base_tool
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +51,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "- فقط از جدول/ستون‌های اسکیمای زیر استفاده کن.\n"
                 "- همیشه LIMIT بذار (حداکثر ۲۰۰) مگر aggregate/COUNT باشه.\n"
                 "- فقط یک کوئری؛ چند statement با ; از هم جدا ننویس.\n"
-                "- تاریخ‌ها رو با NOW()/INTERVAL بساز، هاردکد نکن مگر کاربر "
-                "تاریخ دقیق داده باشه.\n"
+                "- این دیتاست real-time نیست -- برای \"امروز\" هرگز از "
+                "NOW()/CURRENT_DATE واقعی Postgres استفاده نکن. به‌جاش از "
+                "تاریخ مرجعی که در پیام سیستم مکالمه بهت داده شده "
+                "به‌عنوان امروزِ دیتاست استفاده کن (مثلاً به‌جای "
+                "NOW() - INTERVAL '30 days'، از "
+                "'<تاریخ مرجع>'::date - INTERVAL '30 days' بنویس).\n"
                 "- برای خوندن متن نظرات یا جست‌وجوی معنایی از این ابزار استفاده "
                 "نکن -- اون کار tool_rag است.\n\n"
                 f"اسکیمای دیتابیس:\n{SCHEMA_CONTEXT}"
@@ -142,29 +151,32 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     # کامنت خارج کن (و همراهش execute_tool_call پایین + قانون مربوطه در
     # main.py::AGENT_SYSTEM_PROMPT).
     # ============================================================
-    # {
-    #     "type": "function",
-    #     "function": {
-    #         "name": "tool_knowledge_base",
-    #         "description": (
-    #             "جست‌وجو در پایگاه‌دانش آموزشی درباره‌ی چطور باید پیشنهاد "
-    #             "مدیریتی داد (چارچوب‌ها/اصول تحلیل کسب‌وکار). قبل از دادن "
-    #             "هرگونه پیشنهاد یا توصیه‌ی مدیریتی به کاربر، حتماً این ابزار "
-    #             "رو صدا بزن تا پیشنهادت رو بر اساس این دانش + دانش عمومی "
-    #             "خودت بسازی، نه فقط از حافظه‌ی خودت."
-    #         ),
-    #         "parameters": {
-    #             "type": "object",
-    #             "properties": {
-    #                 "query": {
-    #                     "type": "string",
-    #                     "description": "موضوع/سوالی که باید در پایگاه‌دانش جست‌وجو بشه.",
-    #                 }
-    #             },
-    #             "required": ["query"],
-    #         },
-    #     },
-    # },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_knowledge_base",
+            "description": (
+                "جست‌وجو در پایگاه‌دانش آموزشی درباره‌ی چطور باید پیشنهاد "
+                "مدیریتی داد (چارچوب‌ها/اصول تحلیل کسب‌وکار). قبل از دادن "
+                "هرگونه پیشنهاد یا توصیه‌ی مدیریتی به کاربر، حتماً این ابزار "
+                "رو صدا بزن تا پیشنهادت رو بر اساس این دانش + دانش عمومی "
+                "خودت بسازی، نه فقط از حافظه‌ی خودت.\n\n"
+                "⚠️ فعلاً نسخه‌ی placeholder/دیباگ (خلاصه‌ی کلی و ثابت) فعاله، "
+                "نه جست‌وجوی برداری واقعی -- تا وقتی بقیه‌ی اعضا نسخه‌ی نهایی "
+                "رو بسازن."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "موضوع/سوالی که باید در پایگاه‌دانش جست‌وجو بشه.",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -195,8 +207,8 @@ def execute_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
                 y_field=arguments.get("y_field"),
             )
 
-        # if name == "tool_knowledge_base":
-        #     return run_knowledge_base_tool(query=arguments.get("query", ""))
+        if name == "tool_knowledge_base":
+            return run_knowledge_base_tool(query=arguments.get("query", ""))
 
         return {"error": f"ابزار ناشناخته: {name}"}
 

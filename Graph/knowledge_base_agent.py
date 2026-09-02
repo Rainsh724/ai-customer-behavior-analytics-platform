@@ -71,3 +71,57 @@ def run_knowledge_base_tool(query: str) -> dict[str, Any]:
         "run_knowledge_base_tool هنوز پیاده‌سازی نشده -- منتظر محتوای "
         "پایگاه‌دانش و کد جست‌وجوی توسط توسعه‌دهنده‌ی دیگر."
     )
+
+
+# ============================================================
+# پلیس‌هولدر موقت برای دیباگ -- جدا از run_knowledge_base_tool بالا.
+# ============================================================
+# هدف: تا وقتی نسخه‌ی واقعی (embedding واقعی روی جدول knowledge_base_embedding)
+# توسط بقیه‌ی اعضا نوشته بشه، گراف بتونه با tool_knowledge_base به‌صورت
+# کامل (مسیر agent -> tools -> finalize -> validate) دیباگ بشه، بدون
+# اینکه NotImplementedError کل نود tools رو (داخل safe_node) بترکونه.
+#
+# این تابع RAG واقعی نیست -- فقط یک خلاصه‌ی ثابت و کلی از اسکیما/دامنه‌ی
+# کسب‌وکاره (خلاصه‌شده از skima.text/rol2.text) که همیشه یکسان
+# برمی‌گرده، صرف‌نظر از query. برای دیباگ مسیر گراف کافیه؛ برای پاسخ
+# واقعی و مرتبط با query کافی نیست.
+#
+# نحوه‌ی سواپ کردن با نسخه‌ی واقعی وقتی آماده شد:
+#   در tools.py::execute_tool_call، فراخوانی
+#   run_knowledge_base_tool_debug_placeholder را با run_knowledge_base_tool
+#   (نسخه‌ی بالا) عوض کن -- امضای هر دو یکسانه (query: str) -> dict.
+# ============================================================
+
+_DEBUG_KB_SUMMARY = """
+خلاصه‌ی کلی دامنه‌ی کسب‌وکار (فروشگاه آنلاین):
+- لایه‌ی public: محصولات (products)، برندها، دسته‌بندی‌ها، فروشندگان،
+  کاربران، شهرها، سشن‌ها، لاگ رفتار کاربر (بازدید/افزودن به سبد/خرید)،
+  نظرات مشتری (comments) و جنبه‌های استخراج‌شده از نظرات (comment_aspects).
+- لایه‌ی analytics: ویژگی‌های محاسبه‌شده‌ی هر کاربر (feature_user) -- کل
+  خرج، تعداد خرید، تعداد بازدید، روزهای فعال، تنوع دسته‌بندی، میانگین
+  مدت سشن، نسبت فعالیت شبانه/آخر هفته.
+- لایه‌ی kpi: سگمنت‌بندی RFM هر کاربر (rfm_segments -- برچسب‌هایی مثل
+  vip/promising/at_risk/lost/regular) و خوشه‌بندی ML کاربران
+  (ml_user_clusters -- مثل vip_champions/night_weekend_buyers/
+  active_loyals/low_intent_shoppers/churned_customers).
+
+اصول کلی برای پیشنهاد مدیریتی (تا سند واقعی جایگزین بشه):
+- پیشنهاد باید مبتنی بر شواهد عددی (SQL) و/یا کیفی (RAG نظرات) باشه، نه
+  حدس کلی.
+- برای کاربران/سگمنت‌های در معرض ریزش (at_risk/churned) تمرکز روی حفظ
+  مشتری؛ برای vip/promising تمرکز روی افزایش ارزش (upsell/cross-sell).
+- هر پیشنهاد باید مشخص کنه که برای کدوم سگمنت/محصول/بازه‌ی زمانی صدق
+  می‌کنه -- نه یک توصیه‌ی عمومی بدون context عددی.
+
+⚠️ این محتوا موقتیه (placeholder برای دیباگ) و جایگزین سند آموزشی واقعی
+نیست -- بقیه‌ی اعضا قراره جدول knowledge_base_embedding و جست‌وجوی
+برداری واقعی روش رو بسازن.
+""".strip()
+
+
+def run_knowledge_base_tool_debug_placeholder(query: str) -> dict[str, Any]:
+    return {
+        "query": query,
+        "source": "DEBUG_PLACEHOLDER -- جایگزین نسخه‌ی واقعی نشده",
+        "summary": _DEBUG_KB_SUMMARY,
+    }
