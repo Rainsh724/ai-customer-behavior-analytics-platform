@@ -86,8 +86,18 @@ def run_rag_tool(search_topic: str, product_id: int | None = None) -> dict[str, 
             "note": "هیچ نظر مرتبطی پیدا نشد.",
         }
 
-    raw_texts = [h["raw_text_normalized"] for h in hits]
-    summary = summarize_comments(raw_texts)
+    comment_dicts = [
+    {
+        "text": h["raw_text_normalized"],
+        "comment_id": h["comment_id"],
+        "rate": h["rate"],
+        "likes": h["likes"],
+        "dislikes": h["dislikes"],
+        "recommendation_status": h["recommendation_status"],
+    }
+    for h in hits
+]
+    summary = summarize_comments(comment_dicts)
 
     return {
         "search_topic": search_topic,
