@@ -81,7 +81,12 @@ def generate_answer(state: RAGState) -> RAGState:
     return {"answer": answer}
 
 def create_rag_graph() -> StateGraph:
+<<<<<<< HEAD
     workflow = StateGraph()
+=======
+    # workflow = StateGraph()
+    workflow = StateGraph(RAGState)
+>>>>>>> 1a3b195999ff910d53c80c67f7026c64e86e555d
     workflow.add_node("retrieved", retrieve)
     workflow.add_node("generate", generate_answer)
 
