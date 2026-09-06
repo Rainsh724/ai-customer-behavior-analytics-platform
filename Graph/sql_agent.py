@@ -32,6 +32,7 @@ import re
 from typing import Any
 from .production_validator import ProductionSQLValidator
 from .db import run_readonly_query
+from .dataset_time import get_reference_date
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,21 @@ FORBIDDEN_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# اگه تاریخ مرجع لفظی (مثلاً '2023-03-01') مستقیم به‌عنوان کران بالای
+# یک شرط "<" استفاده بشه، بدون + INTERVAL بعدش، یعنی خودِ روز مرجع از
+# بازه حذف می‌شه (چون ستون timestamp ساعت هم داره). این دقیقاً همون
+# چیزیه که باعث می‌شه دو کوئری مختلف برای "همین بازه" (مثلاً tool_sql
+# و tool_chart) دو تا کران پایانی متفاوت داشته باشن -- حتی اگه هردو از
+# instruction متنی پیروی نکنن. برای این‌که این تناقض دیگه اصلاً وابسته
+# به این نباشه که مدل instruction رو دقیق رعایت کنه یا نه، این الگو در
+# سطح کد رد می‌شه.
+def _reference_date_boundary_pattern() -> re.Pattern[str]:
+    ref = re.escape(get_reference_date().isoformat())
+    return re.compile(
+        r"<\s*'" + ref + r"'(?:\s*::\s*date)?(?!\s*\+\s*INTERVAL)",
+        re.IGNORECASE,
+    )
+
 
 def _validate_sql(sql: str) -> str | None:
     """برمی‌گردونه: پیام خطا اگه SQL مشکل داره، وگرنه None. این تنها گیت
@@ -148,6 +164,36 @@ def _validate_sql(sql: str) -> str | None:
         return f"جدول(های) غیرمجاز استفاده شده: {unknown}"
     if "limit" not in stripped.lower() and "count(" not in stripped.lower() and "sum(" not in stripped.lower():
         return "کوئری باید LIMIT داشته باشه (مگر aggregate باشه)."
+
+    # ORDER BY + LIMIT بدون tie-breaker قطعی (ستون شبه‌کلید) -- همون
+    # چک production_validator، نسخه‌ی regex‌ای برای fallback.
+    # ORDER BY + LIMIT بدون tie-breaker قطعی (ستون شبه‌کلید) -- همون
+    # چک production_validator، نسخه‌ی regex‌ای برای fallback. باید هر
+    # جفت ORDER BY...LIMIT رو جدا چک کنه (finditer، نه فقط اولین)، چون
+    # ممکنه چند تا CTE هر کدوم ORDER BY+LIMIT خودشون رو داشته باشن و
+    # فقط یکیشون بدون tie-breaker باشه.
+    id_like = (
+        "product_id", "user_id", "comment_id", "session_id", "city_id",
+        "brand_id", "category_id", "seller_id", "log_id", "aspect_id",
+    )
+    for order_match in re.finditer(
+        r"\bORDER\s+BY\s+(.+?)\bLIMIT\s+\d+",
+        stripped,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        order_clause = order_match.group(1).lower()
+        has_id_col = any(col in order_clause for col in id_like) or re.search(
+            r"\bid\b", order_clause
+        )
+        if not has_id_col:
+            return (
+                "ORDER BY+LIMIT بدون tie-breaker قطعی -- (احتمالاً داخل یک CTE) "
+                "یک ستون شبه‌کلید (مثل product_id) رو به‌عنوان معیار دوم به این "
+                "ORDER BY اضافه کن، وگرنه در معیارهای هم‌امتیاز (tie) هر اجرا "
+                "می‌تونه ست متفاوتی برگردونه. بند مشکل‌دار: "
+                f"ORDER BY {order_match.group(1).strip()[:150]}"
+            )
+
     return None
 
 
@@ -170,6 +216,22 @@ def run_sql_tool(sql: str) -> dict[str, Any]:
     """
     if not sql or not sql.strip():
         return {"error": "sql خالی بود."}
+
+    # این چک مستقل از این‌که کدوم validator (production_validator یا
+    # fallback) فعاله همیشه اجرا می‌شه -- چون production_validator یه
+    # AST-validator عمومیه و این قانونِ خاصِ پروژه (تاریخ مرجع) رو
+    # نمی‌شناسه.
+    boundary_error = None
+    if _reference_date_boundary_pattern().search(sql):
+        boundary_error = (
+            "کران پایانی بازه بدون INTERVAL -- تاریخ مرجع مستقیم به‌عنوان "
+            "کران بالای '<' استفاده شده بدون + INTERVAL '1 day'، که یعنی "
+            "خودِ روز مرجع کامل از بازه حذف می‌شه. اگه بازه باید تا خودِ "
+            "تاریخ مرجع (شامل همون روز) رو بپوشونه، بنویس: "
+            "'<تاریخ مرجع>'::date + INTERVAL '1 day'."
+        )
+    if boundary_error:
+        return {"error": f"SQL نامعتبر: {boundary_error}", "rejected_sql": sql}
 
     # اعتبارسنجی دقیق و ساختاری کوئری -- production_validator اگه در
     # دسترس بود، وگرنه fallback به اعتبارسنج داخلی (regex-based).
@@ -214,24 +276,3 @@ def run_sql_tool(sql: str) -> dict[str, Any]:
             "اگه برای جواب نیاز به کل داده داری، کوئری رو با LIMIT/GROUP BY/aggregate مناسب‌تر دوباره بنویس."
         )
     return result
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

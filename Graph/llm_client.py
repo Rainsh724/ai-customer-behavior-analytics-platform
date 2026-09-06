@@ -167,7 +167,7 @@ def call_llm_with_tools(
 
     if tool_choice != "none":
         kwargs["tools"] = tools
-        kwargs["parallel_tool_calls"] = True
+        kwargs["parallel_tool_calls"] = False
 
     resp = _call_with_rate_limit_retry(lambda: client.chat.completions.create(**kwargs))
 

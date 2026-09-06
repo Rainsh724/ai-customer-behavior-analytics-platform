@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📚 RAG کوچک برای بچه‌ها</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: linear-gradient(145deg, #f7f3ff 0%, #e8f0fe 100%);
+            font-family: 'Segoe UI', 'Tahoma', system-ui, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            margin: 0;
+        }
+
+        .chat-card {
+            max-width: 520px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 40px;
+            box-shadow: 0 20px 50px rgba(0, 20, 40, 0.2), 0 8px 20px rgba(0, 0, 0, 0.08);
+            padding: 28px 24px 30px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 24px;
+            padding-bottom: 14px;
+            border-bottom: 3px dashed #c5d5e8;
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: #1a2b4a;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #1e3a6b, #3b5e8d);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0;
+        }
+
+        .header .emoji-big {
+            font-size: 2.4rem;
+            line-height: 1;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+        }
+
+        .ask-area {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 22px;
+        }
+
+        .input-group {
+            display: flex;
+            align-items: center;
+            background: white;
+            border-radius: 60px;
+            padding: 4px 4px 4px 20px;
+            box-shadow: 0 4px 15px rgba(0, 20, 40, 0.08);
+            border: 2px solid #dce5f0;
+            transition: all 0.3s ease;
+        }
+
+        .input-group:focus-within {
+            border-color: #4a7bb5;
+            box-shadow: 0 6px 20px rgba(56, 98, 168, 0.15);
+            transform: scale(1.02);
+        }
+
+        .input-group input {
+            border: none;
+            padding: 16px 8px 16px 0;
+            font-size: 1.05rem;
+            width: 100%;
+            background: transparent;
+            outline: none;
+            color: #14273e;
+            font-weight: 500;
+        }
+
+        .input-group input::placeholder {
+            color: #8a9bb5;
+            font-weight: 400;
+            font-size: 0.95rem;
+        }
+
+        .input-group button {
+            background: linear-gradient(135deg, #1f3f6b, #2a4d7a);
+            border: none;
+            border-radius: 60px;
+            padding: 14px 28px;
+            color: white;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(26, 55, 102, 0.25);
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            letter-spacing: 0.5px;
+        }
+
+        .input-group button:hover {
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 8px 20px rgba(26, 55, 102, 0.35);
+        }
+
+        .input-group button:active {
+            transform: scale(0.95);
+        }
+
+        .response-box {
+            background: rgba(255, 255, 255, 0.5);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            border-radius: 30px;
+            padding: 18px 20px;
+            margin-top: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.8);
+        }
+
+        .answer-area {
+            background: white;
+            border-radius: 24px;
+            padding: 20px 20px 16px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
+            margin-bottom: 18px;
+            border: 1px solid #ecf2fa;
+            min-height: 80px;
+        }
+
+        .answer-area .label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #6b83a5;
+            font-weight: 700;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .answer-text {
+            font-size: 1.05rem;
+            line-height: 1.7;
+            color: #14273e;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-weight: 450;
+        }
+
+        .answer-text:empty::before {
+            content: "❓ یک سوال بپرس …";
+            color: #b0c3db;
+            font-weight: 400;
+        }
+
+        .sources-section {
+            margin-top: 8px;
+        }
+
+        .sources-section .label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #6b83a5;
+            font-weight: 700;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .source-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .source-tag {
+            background: #eef4fc;
+            padding: 8px 16px 8px 14px;
+            border-radius: 40px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #1f3f6b;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid #d7e2f2;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+            transition: all 0.2s ease;
+            max-width: 100%;
+        }
+
+        .source-tag:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+
+        .source-tag .source-title {
+            max-width: 140px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: inline-block;
+        }
+
+        .source-tag .source-url {
+            color: #4a7bb5;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.75rem;
+            border-left: 2px solid #b7c9e2;
+            padding-left: 10px;
+            margin-left: 4px;
+        }
+
+        .source-tag .source-url:hover {
+            text-decoration: underline;
+            color: #1a4a7a;
+        }
+
+        .search-type-badge {
+            display: inline-block;
+            margin-top: 14px;
+            background: #dce6f5;
+            padding: 6px 18px;
+            border-radius: 40px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: #1d3c63;
+            letter-spacing: 0.5px;
+            border: 1px solid #c4d3e9;
+        }
+
+        .status-loading {
+            color: #3b6a9f;
+            font-weight: 600;
+            font-size: 0.95rem;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            margin-top: 14px;
+            padding: 8px 12px;
+            background: rgba(255,255,255,0.5);
+            border-radius: 40px;
+        }
+
+        .status-loading.show {
+            display: flex;
+        }
+
+        .status-loading span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #3b6a9f;
+            border-radius: 50%;
+            animation: pulse-dot 1.4s infinite;
+        }
+
+        .status-loading span:nth-child(2) { animation-delay: 0.2s; }
+        .status-loading span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes pulse-dot {
+            0%, 60%, 100% { opacity: 0.2; transform: scale(0.8); }
+            30% { opacity: 1; transform: scale(1.2); }
+        }
+
+        .footer-note {
+            margin-top: 20px;
+            font-size: 0.75rem;
+            color: #7d93b3;
+            text-align: center;
+            border-top: 2px solid #dce4f0;
+            padding-top: 18px;
+            letter-spacing: 0.3px;
+        }
+
+        @media (max-width: 480px) {
+            .chat-card { padding: 18px 14px 20px; }
+            .input-group { flex-wrap: nowrap; }
+            .input-group input { font-size: 0.9rem; padding: 14px 4px; }
+            .input-group button { padding: 12px 18px; font-size: 0.9rem; }
+            .source-tag .source-title { max-width: 80px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="chat-card">
+    <div class="header">
+        <span class="emoji-big"></span>
+        <h1>RAG کوچولو</h1>
+        <span style="margin-right: auto; font-size: 1.6rem;">✨</span>
+    </div>
+
+    <div class="ask-area">
+        <div class="input-group">
+            <input type="text" id="questionInput" placeholder="مثلاً: هوش مصنوعی چه کارهایی می‌تواند بکند؟" autofocus>
+            <button id="askButton"> بپرس</button>
+        </div>
+    </div>
+
+    <div class="response-box" id="responseBox">
+        <div class="answer-area" id="answerArea">
+            <div class="label">📝 پاسخ</div>
+            <div class="answer-text" id="answerText"> یک سوال بپرس!</div>
+        </div>
+
+        <div class="sources-section" id="sourcesSection">
+            <div class="label">📎 منابع (منابعی که برای پاسخ استفاده شد)</div>
+            <div class="source-tags" id="sourceTags">
+                <span class="source-tag" style="opacity: 0.6;">
+                     <span class="source-title">منبع نمونه</span>
+                    <span class="source-url" style="border-left: none;"></span>
+                </span>
+            </div>
+            <div id="searchTypeBadge" class="search-type-badge"> هیبرید (BM25 + FAISS)</div>
+        </div>
+
+        <div id="loadingStatus" class="status-loading">
+            <span></span><span></span><span></span> در حال فکر کردن …
+        </div>
+    </div>
+
+    <div class="footer-note">
+        ⚡ این یک RAG ساده است — سوال بپرس و ببین از چه منابعی استفاده شده!
+    </div>
+</div>
+
+<script>
+    (function() {
+        // از آدرس نسبی استفاده می‌کنیم چون روی همان سرور هستیم
+        const API_URL = '/ask';
+
+        const questionInput = document.getElementById('questionInput');
+        const askButton = document.getElementById('askButton');
+        const answerText = document.getElementById('answerText');
+        const sourceTags = document.getElementById('sourceTags');
+        const loadingStatus = document.getElementById('loadingStatus');
+        const searchTypeBadge = document.getElementById('searchTypeBadge');
+
+        function setLoading(isLoading) {
+            if (isLoading) {
+                loadingStatus.classList.add('show');
+                askButton.disabled = true;
+                askButton.innerHTML = '⏳ ...';
+                answerText.textContent = ' در حال فکر کردن ...';
+            } else {
+                loadingStatus.classList.remove('show');
+                askButton.disabled = false;
+                askButton.innerHTML = ' بپرس';
+            }
+        }
+
+        function clearSources() {
+            sourceTags.innerHTML = '';
+        }
+
+        function renderSources(sources) {
+            clearSources();
+            if (!sources || sources.length === 0) {
+                const emptyTag = document.createElement('span');
+                emptyTag.className = 'source-tag';
+                emptyTag.style.opacity = '0.6';
+                emptyTag.textContent = '🔹 منبعی برای نمایش وجود ندارد';
+                sourceTags.appendChild(emptyTag);
+                return;
+            }
+
+            sources.forEach((src) => {
+                const title = src?.title || 'منبع';
+                const url = src?.url || '#';
+                const tag = document.createElement('span');
+                tag.className = 'source-tag';
+
+                const titleSpan = document.createElement('span');
+                titleSpan.className = 'source-title';
+                titleSpan.textContent = title;
+                tag.appendChild(titleSpan);
+
+                if (url && url !== '#') {
+                    const urlLink = document.createElement('a');
+                    urlLink.className = 'source-url';
+                    urlLink.href = url;
+                    urlLink.textContent = '🔗';
+                    urlLink.target = '_blank';
+                    urlLink.rel = 'noopener noreferrer';
+                    tag.appendChild(urlLink);
+                } else {
+                    const noLink = document.createElement('span');
+                    noLink.className = 'source-url';
+                    noLink.style.borderLeft = 'none';
+                    noLink.style.paddingLeft = '4px';
+                    noLink.textContent = '📄';
+                    tag.appendChild(noLink);
+                }
+
+                sourceTags.appendChild(tag);
+            });
+        }
+
+        async function askQuestion(question) {
+            if (!question.trim()) {
+                answerText.textContent = '⚠️ لطفاً یک سوال بنویسید.';
+                clearSources();
+                return;
+            }
+
+            setLoading(true);
+            clearSources();
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ question: question.trim() }),
+                });
+
+                if (!response.ok) {
+                    let errMsg = `خطا ${response.status}`;
+                    try {
+                        const errData = await response.json();
+                        if (errData.detail) errMsg = errData.detail;
+                    } catch (_) {}
+                    throw new Error(errMsg);
+                }
+
+                const data = await response.json();
+
+                if (data.answer) {
+                    answerText.textContent = data.answer;
+                } else {
+                    answerText.textContent = 'پاسخی دریافت نشد.';
+                }
+
+                if (data.sources && Array.isArray(data.sources)) {
+                    renderSources(data.sources);
+                } else {
+                    renderSources([]);
+                }
+
+                if (data.search_type) {
+                    searchTypeBadge.textContent = ` ${data.search_type}`;
+                } else {
+                    searchTypeBadge.textContent = ' هیبرید (BM25 + FAISS)';
+                }
+
+            } catch (error) {
+                answerText.textContent = ` خطا: ${error.message || 'مشکل در ارتباط با سرور'}`;
+                clearSources();
+                const errTag = document.createElement('span');
+                errTag.className = 'source-tag';
+                errTag.style.background = '#ffe6e6';
+                errTag.style.borderColor = '#f5bebe';
+                errTag.textContent = ' ارتباط با سرور برقرار نشد';
+                sourceTags.appendChild(errTag);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        askButton.addEventListener('click', function() {
+            const q = questionInput.value;
+            askQuestion(q);
+        });
+
+        questionInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                askButton.click();
+            }
+        });
+
+        // بعد از لود، فوکوس روی input
+        window.addEventListener('load', function() {
+            questionInput.focus();
+        });
+    })();
+</script>
+
+</body>
+</html>

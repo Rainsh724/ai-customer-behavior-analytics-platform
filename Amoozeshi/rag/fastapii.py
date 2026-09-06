@@ -25,3 +25,24 @@ def retrieve_endpoint(playload: dict):
     top_k = playload.get("top_k", 3)
     result = retrieve({"question": question, "top_k": top_k})
     return {"question": question, "sources": result.get("source", []), "result": result}
+
+@app.post("/ask") 
+def ask_endpoint(playload : dict) : 
+  if rag_graph is None : 
+    raise Exception(503 , "Rag not insilize " ) 
+  question = playload.get("question" , " " ).strip() 
+  if not question: 
+    raise HTTPException(400 , " question is requerd " )  
+  top_k=playload.get("top_k" , 3)  
+  result = rag_graph.invoke({ 
+    "question " : question , 
+    "top_ k" :top_k ,  
+    "answer":"" 
+  }) 
+
+  return { 
+     "question" : question ,
+     "answer" : result.get("answer " ,""), 
+     "soursce": result.get("source" , []) , 
+     "model_used" : OLLAMA_MODEL 
+  }

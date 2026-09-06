@@ -41,46 +41,62 @@ _TOKEN_RE = re.compile(r"[\w]+", re.UNICODE)
 def _tokenize(text: str) -> list[str]:
     return [t for t in _TOKEN_RE.findall(text.lower()) if len(t) > 1 and t not in PERSIAN_STOPWORDS]
 
+def _normalize_comment(item: str | dict) -> dict:
+    """
+    ورودی summarize_comments می‌تونه یا رشته‌ی خام باشه (سازگاری با
+    فراخوان‌های قدیمی مثل test_summary_manual.py) یا دیکشنری با متادیتا
+    (comment_id, rate, likes, dislikes, ...). این تابع هر دو حالت رو به
+    یک شکل یکسان تبدیل می‌کنه: یک دیکشنری که حداقل کلید "text" رو داره.
+    """
+    if isinstance(item, str):
+        return {"text": item}
+    return item
 
 def summarize_comments(
-    comments: list[str],
+    comments: list[str] | list[dict],
     top_n_keywords: int = 15,
     top_n_representative: int = 6,
-) -> dict[str, list[str]]:
+) -> dict:
     """
-    ورودی: لیست متن خام نظرات (مثلاً ۲۰ تا از نزدیک‌ترین نتایج جست‌وجوی
-    برداری).
+    ورودی: لیست متن خام نظرات (list[str]) یا لیست دیکشنری با متادیتا
+    (list[dict] -- هر دیکشنری حداقل کلید "text" رو باید داشته باشه؛ هر
+    کلید دیگه‌ای مثل comment_id/rate/likes بدون تغییر همراهش نگه داشته
+    می‌شه).
     خروجی: {"top_keywords": [...], "representative_comments": [...]}
-    -- این خلاصه‌ست که به‌جای همه‌ی نظرات خام، به Agent داده می‌شه.
+    -- representative_comments همیشه لیستی از دیکشنریه (حتی اگه ورودی
+    رشته‌ی خام بوده باشه)، تا فراخوان‌ها یکدست بمونن.
     """
     if not comments:
         return {"top_keywords": [], "representative_comments": []}
 
+    normalized = [_normalize_comment(c) for c in comments]
+
     freq: Counter[str] = Counter()
     tokenized_comments: list[list[str]] = []
-    for comment in comments:
-        tokens = _tokenize(comment)
+    for c in normalized:
+        tokens = _tokenize(c["text"])
         tokenized_comments.append(tokens)
         freq.update(tokens)
 
     top_keywords = [word for word, _ in freq.most_common(top_n_keywords)]
 
-    scored: list[tuple[float, str]] = []
-    for comment, tokens in zip(comments, tokenized_comments):
+    scored: list[tuple[float, dict]] = []
+    for c, tokens in zip(normalized, tokenized_comments):
         if not tokens:
             continue
         score = sum(freq[t] for t in tokens) / len(tokens)
-        scored.append((score, comment))
+        scored.append((score, c))
 
     scored.sort(key=lambda pair: pair[0], reverse=True)
 
-    representative: list[str] = []
+    representative: list[dict] = []
     seen: set[str] = set()
-    for _, comment in scored:
-        if comment in seen:
+    for _, c in scored:
+        text = c["text"]
+        if text in seen:
             continue
-        seen.add(comment)
-        representative.append(comment)
+        seen.add(text)
+        representative.append(c)
         if len(representative) >= top_n_representative:
             break
 

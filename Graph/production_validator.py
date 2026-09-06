@@ -105,6 +105,20 @@ class ProductionSQLValidator:
             f"{db}.{table}" for db, tables in self.schema.items() for table in tables
         }
 
+        # ستون‌های شبه‌کلید (PK/FK) که یکتا یا نزدیک به یکتا هستن -- برای
+        # چک «ORDER BY بدون tie-breaker قطعی» استفاده می‌شن. اگه ORDER BY
+        # هیچ‌کدوم از این‌ها رو نداشته باشه و همراه LIMIT باشه، روی
+        # معیارهای غیریکتا (مثل COUNT/SUM) با مقادیر برابر (tie)، هر بار
+        # اجرا -- یا مقایسه‌ی دو ابزار مختلف مثل tool_sql و tool_chart که
+        # هردو همین کوئری رو با LIMIT جدا می‌نویسن -- می‌تونه ست متفاوتی
+        # از ردیف‌های هم‌امتیاز برگردونه؛ همون چیزی که باعث ناسازگاری بین
+        # جدول SQL و نمودار می‌شه.
+        self.id_like_columns: Set[str] = {
+            "id", "user_id", "product_id", "comment_id", "session_id",
+            "city_id", "brand_id", "category_id", "seller_id", "log_id",
+            "aspect_id",
+        }
+
         self.formatted_schema = {}
         for db, tables in self.schema.items():
             self.formatted_schema[db] = {}
@@ -276,5 +290,39 @@ class ProductionSQLValidator:
                         f"Pre-aggregate child tables separately in CTEs before joining."
                     )
 
+        # ---------------------------------------------------------
+        # چک: ORDER BY + LIMIT بدون tie-breaker قطعی (ستون شبه‌کلید).
+        # فقط روی SELECT نهایی (بیرونی‌ترین) چک می‌شه، نه CTEهای داخلی --
+        # چون فقط ORDER BY+LIMIT نهایی روی خروجی قابل‌مشاهده اثر می‌ذاره.
+        # ---------------------------------------------------------
+        # این چک باید روی *همه‌ی* SELECTها (از جمله CTEهای داخلی) اجرا
+        # بشه، نه فقط SELECT نهایی/بیرونی -- وگرنه یه ORDER BY+LIMIT
+        # غیرقطعی داخل یه CTE (مثلاً برای انتخاب اولیه‌ی top-N قبل از
+        # JOIN با بقیه) از زیر این چک در می‌ره، دقیقاً همون‌طور که یک بار
+        # اتفاق افتاد.
+        for select_node in qualified_parsed.find_all(exp.Select):
+            order_expr = select_node.args.get("order")
+            limit_expr = select_node.args.get("limit")
+
+            if order_expr is None or limit_expr is None:
+                continue
+
+            order_columns = {
+                col.name.lower()
+                for col in order_expr.find_all(exp.Column)
+            }
+            if not (order_columns & self.id_like_columns):
+                errors.append(
+                    "NON-DETERMINISTIC ORDER BY: a SELECT (possibly inside a CTE) has "
+                    "ORDER BY + LIMIT but no id-like tie-breaker column (e.g. "
+                    "product_id, id, user_id) in the ORDER BY. When the sort metric has "
+                    "ties (e.g. COUNT(*)/SUM(*)), repeated or related runs (including "
+                    "tool_chart querying the same ranking) can return a different "
+                    "subset of tied rows each time. Add a deterministic secondary sort "
+                    "key, e.g. 'ORDER BY units_sold DESC, product_id ASC', to every "
+                    "ranking step -- including inside CTEs used to pick a top-N before "
+                    "joining to other tables. Offending clause: "
+                    f"{select_node.sql()[:200]}"
+                )
         unique_errors = list(dict.fromkeys(errors))
         return len(unique_errors) == 0, unique_errors
