@@ -531,7 +531,7 @@ function translateSegment(s) {
 }
 async function downloadSegment(s) {
   try {
-    const map = { "VIP Customer": "vip", "Returning Customer": "returning", "One-Time Buyer": "one-time", "Low Engagement": "low-engagement", "Window Shopper": "window-shopper" };
+    const map = {"VIP Customer":"vip_champions","Returning Customer":"active_loyals","One-Time Buyer":"night_weekend_buyers","Low Engagement":"low_intent_shoppers","Window Shopper":"churned_customers"};
     const response = await api(`/api/customer-segments/${map[s] || encodeURIComponent(s)}/export`);
     const blob = await response.blob();
     const url = URL.createObjectURL(blob); const a = document.createElement("a");
