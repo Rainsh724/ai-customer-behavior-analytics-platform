@@ -33,7 +33,7 @@ class DBConfig:
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = os.getenv("DB_PORT", "5432")
 
-    STATEMENT_TIMEOUT_MS = int(os.getenv("SQL_STATEMENT_TIMEOUT_MS", "8000"))
+    STATEMENT_TIMEOUT_MS = int(os.getenv("SQL_STATEMENT_TIMEOUT_MS", "60000"))
     POOL_MIN_CONN = int(os.getenv("PG_POOL_MIN", "1"))
     POOL_MAX_CONN = int(os.getenv("PG_POOL_MAX", "10"))
 
@@ -66,6 +66,8 @@ def get_conn() -> Iterator[psycopg2.extensions.connection]:
     try:
         with conn.cursor() as cur:
             cur.execute(f"SET statement_timeout = {DBConfig.STATEMENT_TIMEOUT_MS};")
+            cur.execute("SHOW statement_timeout;")
+            print("CURRENT TIMEOUT:", cur.fetchone())
             # فقط SELECT مجازه -- دفاع دوم بعد از validation در sql_agent
             cur.execute("SET default_transaction_read_only = on;")
         yield conn

@@ -52,6 +52,51 @@ class GraphState(TypedDict, total=False):
     conversation_context: dict[str, Any]
 
     # ============================================================
+    # تشخیص سوال چندبخشی (Multi-question splitting)
+    #
+    # detect_multi_question_node (nodes.py) این دو فیلد رو پر می‌کنه:
+    # - is_multi_question: آیا سوال کاربر واقعاً چند بخش مستقل داره؟
+    # - sub_questions: لیست بخش‌های تفکیک‌شده (فقط وقتی is_multi_question
+    #   True باشه پر می‌شه؛ در غیر این صورت خالیه و مسیر عادی agent
+    #   دست‌نخورده اجرا می‌شه).
+    #
+    # هدف: سوالات چندبخشی به‌جای اینکه در یک حلقه‌ی طولانی
+    # agent<->tools (با تاریخچه‌ی رو‌به‌رشد) پردازش بشن -- که مصرف توکن
+    # رو بالا می‌بره و باعث رسیدن زودهنگام به سقف/متوقف شدن وسط کار
+    # می‌شه -- هر بخش با یک context مستقل و کوچیک (نه کل تاریخچه)
+    # پردازش می‌شه.
+    # ============================================================
+
+    is_multi_question: bool
+
+    sub_questions: list[str]
+
+    # ============================================================
+    # وضعیت پردازش سوالات چندبخشی
+    # ============================================================
+
+    current_sub_question_index: int
+
+    current_sub_question: str
+
+    sub_question_messages: list[dict[str, Any]]
+
+    sub_question_answers: Annotated[
+        list[dict[str, Any]],
+        add,
+    ]
+
+    sub_question_tool_trace: list[dict[str, Any]]
+    
+    sub_question_iterations: int
+
+    sub_question_consecutive_tool_errors: int
+
+    sub_question_correction_attempts: int
+
+    sub_question_validation: dict[str, Any]
+
+    # ============================================================
     # شمارنده‌ی دور Agent <-> Tools
     # ============================================================
 
@@ -80,6 +125,23 @@ class GraphState(TypedDict, total=False):
     # ============================================================
 
     validation: dict[str, Any]
+
+    # ============================================================
+    # شمارنده‌ی تلاش‌های واقعیِ اصلاح (برگشت به Agent، نه فقط
+    # بازنویسیِ متنیِ correct_answer). با رسیدن به MAX_CORRECTION_RETRIES
+    # (در nodes.py) دیگه به "agent" برنمی‌گردیم و فقط correct_answer
+    # (بازنویسیِ متنیِ یک‌باره) اجرا می‌شه.
+    # ============================================================
+
+    correction_attempts: int
+
+    # ============================================================
+    # فیدبک ممیزی که قراره یک‌بار (در همون دور بعدی) به Agent داده بشه
+    # -- توسط prepare_retry_node پر می‌شه و در agent_node به‌صورت یک
+    # پیام system موقت (جزو turn_control_messages) به مدل تزریق می‌شه.
+    # ============================================================
+
+    retry_feedback: dict[str, Any]
 
     # ============================================================
     # خطاها

@@ -96,6 +96,18 @@ comment_aspects(aspect_id PK, comment_id FK->comments.id, term TEXT,
                  -- برای شمارش/آمار جنبه‌ها قابل‌استفاده‌ست؛ برای *خوندن متن*
                  -- نظرات و جست‌وجوی معنایی، اون کار tool_rag است نه tool_sql.
 
+product_negative_feedback_summary(product_id BIGINT PK/FK->products.id,
+                 avg_negative_pct DOUBLE, comment_cnt BIGINT)
+                 -- یک جدول خلاصه‌ی از پیش محاسبه‌شده در سطح محصول است.
+                 -- هر وقت نیاز به میانگین درصد بازخورد منفی (negative_pct)
+                 -- در سطح یک محصول (نه تک‌تک نظرات) داری، همیشه از همین
+                 -- جدول بخوان -- هرگز مستقیم comments را با comment_aspects
+                 -- JOIN نکن تا این آمار را دوباره از صفر محاسبه کنی؛ آن
+                 -- JOIN روی کل دیتاست بسیار کند است (میلیون‌ها ردیف) و این
+                 -- جدول همان نتیجه را از پیش محاسبه کرده. توجه: این جدول
+                 -- periodic رفرش می‌شود، پس ممکن است چند ساعت/روز قدیمی
+                 -- باشد -- برای تحلیل‌های سطح-محصول/گزارش‌گیری کافی است.
+
 
 -- ==========================================
 -- جداول تحلیلی و هوشمند (AI & Analytics)
@@ -111,17 +123,46 @@ kpi.rfm_segments(user_id BIGINT PK/FK->users.user_id, recency_days INT, frequenc
 
 kpi.ml_user_clusters(user_id BIGINT PK/FK->users.user_id, cluster_id INT, cluster_name TEXT)
                      -- مقادیر cluster_name شامل: 'vip_champions', 'night_weekend_buyers', 'active_loyals', 'low_intent_shoppers', 'churned_customers'
+
+-- ==========================================
+-- نکته‌ی مهم PostgreSQL: تابع ROUND
+-- ==========================================
+-- ROUND(double precision, integer) در PostgreSQL وجود ندارد -- فقط
+-- ROUND(numeric, integer) پشتیبانی می‌شود. هر ستونی که DOUBLE PRECISION
+-- است (مثل conversion_rate یا هر مقداری که با ::DOUBLE PRECISION ساخته
+-- شده) قبل از ROUND کردن با تعداد رقم اعشار، باید اول به numeric کست شود:
+--     ROUND(some_double_precision_expr::numeric, 4)
+-- در غیر این صورت خطای «function round(double precision, integer) does
+-- not exist» می‌گیری.
 """
 
 # اضافه کردن جداول تحلیلی و نام اسکیماها به لیست سفید (Whitelist)
 ALLOWED_TABLES = {
-    "products", "brands", "categories", "sellers", "users", "cities",
-    "sessions", "user_behavior_logs", "comments", "comment_aspects",
+    "products",
+    "brands",
+    "categories",
+    "sellers",
+    "users",
+    "cities",
+    "sessions",
+    "user_behavior_logs",
+    "comments",
+    "comment_aspects",
     "comments_embedding",
-    # --- اضافه‌شده‌های جدید ---
-    "feature_user", "rfm_segments", "ml_user_clusters",
-    "analytics.feature_user", "kpi.rfm_segments", "kpi.ml_user_clusters",
-    "analytics", "kpi"  # اضافه کردن نام اسکیماها تا پارسر امنیتی به آن‌ها گیر ندهد
+
+    # analytics schema
+    "analytics",
+    "analytics.feature_user",
+
+    # kpi schema
+    "kpi",
+    "kpi.rfm_segments",
+    "kpi.ml_user_clusters",
+
+    # unqualified table names
+    "feature_user",
+    "rfm_segments",
+    "ml_user_clusters",
 }
 
 

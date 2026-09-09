@@ -75,6 +75,7 @@ products.price قیمت فعلی محصول است؛ بنابراین price * un
 فقط estimated_sales است و نباید بدون توضیح به‌عنوان درآمد واقعی
 تاریخی معرفی شود.
 
+
 برای جلوگیری از fan-out، ابتدا purchaseها را بر اساس product_id
 تجمیع کن و سپس به products JOIN شو. هرگز SUM(products.price) را
 مستقیماً روی JOIN با purchase events اجرا نکن.
@@ -89,6 +90,15 @@ product_id ASC) به‌عنوان کلید دوم ORDER BY اضافه کن، ح�
 همان سؤال، محصولات متفاوتی نشان دهند. اگر کاربر پرسید چرا SQL و
 نمودار نتایج متفاوتی دارند، همین علت (نبود tie-breaker) را به‌عنوان
 دلیل احتمالی در نظر بگیر، نه یک اختلاف دیتای واقعی.
+
+هر وقت رتبه‌بندی بر اساس یک نسبت/میانگین/درصد است (مثل conversion_rate،
+avg_negative_pct، avg_rating)، نه یک شمارش خام، حتماً یک حداقل حجم
+نمونه (مثلاً view_cnt >= 30 یا comment_cnt >= 5، بسته به سؤال) در
+WHERE اعمال کن. بدون این فیلتر، محصولاتی با تعداد بازدید/نظر بسیار
+کم (مثلاً ۱ بازدید یا ۱ نظر) به‌راحتی به مقادیر افراطی ۰٪ یا ۱۰۰٪
+می‌رسند و رتبه‌بندی را با نویز آماری (نه سیگنال واقعی کسب‌وکار) پر
+می‌کنند. اگر چنین فیلتری اعمال کردی، حتماً در پاسخ نهایی ذکر کن که
+نتایج به محصولات با حداقل فلان مقدار بازدید/نظر محدود شده است.
 
 ۴. زمان
 تاریخ مرجع تمام محاسبات نسبی همان DATASET REFERENCE DATE موجود در
@@ -700,9 +710,10 @@ def main() -> None:
         print(f"[هشدار] ensure_schema شکست خورد -- حافظه‌ی چت کار نخواهد کرد تا رفعش کنی: {exc}")
 
     result = run(
-        "در شش ماه اخیر، کدام محصولات بیشترین فروش را داشته فروش دقیقاً روز 23 بهمن 1401 چقدر بوده؟"
-       "فروش امروز و دیروز رو مقایسه کن",
-        chat_id="test-top-selling-product"
+        "کدام ۱۰ محصول بیشترین تعداد کامنت مثبت را دریافت کرده‌اند؟ کدام ۱۰ برند بیشترین تعداد کامنت را دریافت کرده‌اند و میانگین امتیاز مشتریان آن‌ها چقدر است؟",
+        # "نظر کاربران درمورد کالاهای مربوط به مدسه چطوره؟",
+    #    "اکثرن از چه برند ها و کتگوری هایی هستن؟",
+        chat_id="test-top-selling-product_4"
     )
 
     print("\nFINAL ANSWER:")
@@ -718,22 +729,38 @@ def main() -> None:
             print(f"  - {err}")
 
 
-    followup = run(
-        "چرا؟",
-        chat_id="test-top-selling-product"
-    )
+    # followup = run(
+    #     "درآمد ما در 1 سال اخیر چقدر بوده و چند درصد این درآمد به کدام کتگوری ها مربوطه؟",
+    #     chat_id="test-top-selling-product_3"
+    # )
 
-    print("\n\n--- سوال ادامه‌دار با حافظه‌ی Postgres ---")
-    print(followup.get("final_answer"))
+    # print("\n\n--- سوال ادامه‌دار با حافظه‌ی Postgres ---")
+    # print(followup.get("final_answer"))
+
+    # followup = run(
+    #     "چه شهرهایی در چه بازه های زمانیی چه محصولاتی رو بیشتر خریدند؟",
+    #     chat_id="test-top-selling-product_3"
+    # )
+
+    # print("\n\n--- سوال ادامه‌دار با حافظه‌ی Postgres ---")
+    # print(followup.get("final_answer"))
 
 
-    chart_result = run(
-        "فروش هفته‌ی اول آذر ۱۴۰۱",
-        chat_id="test-top-selling-product"
-    )
+    # followup = run(
+    #     "با توجه به وضعیت کلی خرید و داده های رفتاری کاربران در سال اخیر به نظرت باید چیکار کنیم برای بهبود وضعیت؟",
+    #     chat_id="test-top-selling-product_3"
+    # )
 
-    print("\n\n--- نمونه‌ی نمودار ---")
-    print(chart_result.get("final_answer"))
+    # print("\n\n--- سوال ادامه‌دار با حافظه‌ی Postgres ---")
+    # print(followup.get("final_answer"))
+
+    # chart_result = run(
+    #     "نمودار فروش محصولات آرایشی بهداشتی رو در 1 سال اخیر نشون بده و بگو وضعیتشون در چه حالیه؟",
+    #     chat_id="test-top-selling-product_2"
+    # )
+
+    # print("\n\n--- نمونه‌ی نمودار ---")
+    # print(chart_result.get("final_answer"))
 
 
 if __name__ == "__main__":

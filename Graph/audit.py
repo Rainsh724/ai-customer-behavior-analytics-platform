@@ -60,6 +60,9 @@ VALIDATION_SYSTEM_PROMPT = """
   پایین (زیر ۳۰) بده.
 - اگه جواب کاملاً بر اساس شواهد موجوده -> warnings خالی، grounded=true،
   match_score نزدیک ۱۰۰.
+- اگه match_score زیر ۷۰ باشه، warnings هرگز نباید خالی بمونه -- حتماً
+  حداقل یک ادعای مشخص (یا نبودِ کلی شواهدِ کافی) رو در warnings بنویس،
+  وگرنه correct_answer نمی‌فهمه دقیقاً چیو باید اصلاح کنه.
 """
 
 CORRECTION_SYSTEM_PROMPT = """

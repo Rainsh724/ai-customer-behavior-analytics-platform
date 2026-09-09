@@ -72,6 +72,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 - هنگام JOIN کردن products با user_behavior_logs، روی ستون‌های products
                 مثل price مستقیماً SUM/AVG انجام نده؛ ابتدا child table را در CTE
                 تجمیع کن و سپس به products JOIN کن.
+
+
+                قوانین کار با جداول بزرگ:
+
+                - جداول comments، comment_aspects و user_behavior_logs میلیون‌ها رکورد دارند.
+                - هرگز SELECT * روی این جداول اجرا نکن.
+                - قبل از JOIN روی این جداول، ابتدا با WHERE، LIMIT یا aggregation حجم داده را کاهش بده.
+                - برای تحلیل‌های آماری از COUNT، SUM، AVG و GROUP BY استفاده کن.
+                - از JOIN چند جدول بزرگ بدون فیلتر زمانی یا شرط محدودکننده خودداری کن.
                 """
                 f"اسکیمای دیتابیس:\n{SCHEMA_CONTEXT}"
             ),

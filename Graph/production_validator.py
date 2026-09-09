@@ -184,12 +184,21 @@ class ProductionSQLValidator:
                 )
 
         for agg_node in qualified_parsed.find_all((exp.Sum, exp.Avg)):
-            for col in agg_node.find_all(exp.Column):
-                if col.name.lower() in self.ratio_columns:
-                    func_name = "SUM" if isinstance(agg_node, exp.Sum) else "AVG"
-                    errors.append(
-                        f"INVALID AGGREGATION BUG: Cannot '{func_name}' pre-calculated ratio/metric '{col.name}'."
-                    )
+            # فقط زمانی بگیر که آرگومان *مستقیمِ* SUM/AVG خودِ ستون خام
+            # باشه (بدون هیچ عملیات دیگه‌ای دورش) -- یعنی الگوی غلط
+            # AVG(avg_negative_pct) یا SUM(avg_negative_pct). اگه ستون
+            # داخل یه عبارت دیگه (مثلاً یه ضرب برای میانگین وزن‌دار:
+            # SUM(avg_negative_pct * comment_cnt)) ظاهر بشه، این یه
+            # الگوی صحیحِ weighted-average است و نباید رد بشه.
+            arg = agg_node.this
+            if isinstance(arg, exp.Column) and arg.name.lower() in self.ratio_columns:
+                func_name = "SUM" if isinstance(agg_node, exp.Sum) else "AVG"
+                errors.append(
+                    f"INVALID AGGREGATION BUG: Cannot '{func_name}' pre-calculated ratio/metric "
+                    f"'{arg.name}' directly -- this averages per-row ratios without weighting by "
+                    f"sample size. Use a weighted average instead: "
+                    f"SUM({arg.name} * weight_column) / NULLIF(SUM(weight_column), 0)."
+                )
 
         for scope in traverse_scope(qualified_parsed):
             if not isinstance(scope.expression, exp.Select):

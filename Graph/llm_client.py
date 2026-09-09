@@ -41,7 +41,7 @@ def get_client() -> OpenAI:
     global _client
     if _client is None:
         _client = OpenAI(
-            api_key=os.environ["GROQ_API_KEY"],
+            api_key=os.environ["API_KEY"],
             base_url="https://api.groq.com/openai/v1",
         )
     return _client
@@ -165,9 +165,29 @@ def call_llm_with_tools(
         tool_choice=tool_choice,
     )
 
+
+    estimated_input_chars = len(
+        json.dumps(
+            messages,
+            ensure_ascii=False,
+            default=str,
+        )
+    )
+
+    estimated_input_tokens = estimated_input_chars // 4
+
     if tool_choice != "none":
         kwargs["tools"] = tools
         kwargs["parallel_tool_calls"] = False
+
+    logger.info(
+        "LLM request: model=%s messages=%d chars≈%d tokens≈%d tools=%d",
+        CHAT_MODEL,
+        len(messages),
+        estimated_input_chars,
+        estimated_input_tokens,
+        len(tools) if tool_choice != "none" else 0,
+    )
 
     resp = _call_with_rate_limit_retry(lambda: client.chat.completions.create(**kwargs))
 
