@@ -74,3 +74,18 @@ ANALYZE comment_aspects;
 ANALYZE products;
 ANALYZE categories;
 ANALYZE sessions;
+
+
+
+--- جدول جدید برای دقت و معیارهای ارزیابی چت ها و عملکرد Llm
+
+CREATE TABLE public.eval_log (
+    id                  BIGSERIAL PRIMARY KEY,
+    chat_id             TEXT,
+    question            TEXT,
+    faithfulness_score  INTEGER,
+    relevance_score     INTEGER,
+    confidence_score    INTEGER,
+    grounded            BOOLEAN,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);

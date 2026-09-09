@@ -3,11 +3,14 @@ from __future__ import annotations
 
 from typing import Any
 import json
+import logging
 
 from Graph.graph import get_graph
 from Graph.dataset_time import get_reference_date
-from Graph.llm_client import preload_embedding_model
+from Graph.llm_client import preload_embedding_model, call_llm_json
 import memory_store
+
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # پرامپت سیستمی Agent -- شخصیت "مدیر ارشد" طبق سند معماری.
@@ -226,7 +229,66 @@ def _normalize_question(text: str) -> str:
     return " ".join((text or "").strip().lower().split())
 
 
-def _is_follow_up_question(question: str) -> bool:
+# ============================================================
+# تشخیص follow-up با LLM (fallback روی whitelist ثابت بالا)
+# ============================================================
+# مشکل نسخه‌ی قبلی: _is_follow_up_question فقط یک whitelist ثابت از
+# عبارت‌ها («چرا؟»، «دلیلش؟»، ...) و چند پیشوند («چرا »، «همون »، ...)
+# رو follow-up می‌شناخت. یک عبارت کاملاً معمولی مثل «همین جوابتو
+# خلاصه‌تر بهم بده» هیچ‌کدوم از این‌ها رو نداره -- پس is_follow_up=False
+# می‌شد، active context هیچ‌وقت به‌عنوان یک پیام system صریح تزریق
+# نمی‌شد، و مدل فقط با تاریخچه‌ی خام (و محدود) تنها می‌موند.
+#
+# راه‌حل: whitelist سریع/رایگان بالا رو به‌عنوان fast-path نگه می‌داریم
+# (اکثر follow-upهای رایج رو بدون هیچ تماس اضافه‌ی LLM تشخیص می‌ده)، ولی
+# وقتی هیچ‌کدوم مچ نشد و یک پاسخ قبلی معتبر در تاریخچه هست، یک تماس سبک
+# LLM (دقیقاً همون الگوی call_llm_json که در Graph/nodes.py برای تشخیص
+# سوال چندبخشی استفاده می‌شه) می‌پرسه که آیا این سوال واقعاً ادامه‌ی
+# همون پاسخ قبلیه یا نه. این باعث می‌شه پارافریزهای غیرمنتظره هم درست
+# تشخیص داده بشن، نه فقط عبارت‌های از پیش پیش‌بینی‌شده.
+# ============================================================
+
+FOLLOW_UP_CLASSIFIER_PROMPT = """
+تو باید تشخیص بدی که آیا "سوال جدید" کاربر ادامه/follow-up مستقیم
+"آخرین پاسخ" دستیار در همین مکالمه است یا یک سوال کاملاً جدید و مستقل.
+
+فقط یک JSON با این فرمت برگردان -- هیچ متن اضافه‌ای ننویس:
+
+{"is_follow_up": true|false}
+
+قوانین -- محافظه‌کارانه تصمیم بگیر:
+- اگر سوال جدید ارجاع ضمنی/صریح به همون پاسخ قبلی داره (مثل «خلاصه‌ترش
+  کن»، «همینو با نمودار نشون بده»، «چرا؟»، «برای برند دیگه هم همینو
+  بگو»، «واحدش رو عوض کن») -> true.
+- اگر سوال جدید کاملاً مستقل و بدون نیاز به دونستن پاسخ قبلی قابل‌فهمه
+  (حتی اگه موضوعش مشابه باشه) -> false.
+- اگر پاسخ قبلی خالی/نامرتبط بود یا سوال جدید یک موضوع کاملاً تازه‌ست،
+  false.
+"""
+
+
+def _classify_follow_up_llm(question: str, previous_answer: str) -> bool:
+    if not previous_answer or not previous_answer.strip():
+        return False
+
+    try:
+        result = call_llm_json(
+            FOLLOW_UP_CLASSIFIER_PROMPT,
+            (
+                f"آخرین پاسخ دستیار:\n{previous_answer}\n\n"
+                f"سوال جدید کاربر:\n{question}"
+            ),
+        )
+        return bool(isinstance(result, dict) and result.get("is_follow_up"))
+    except Exception as exc:  # noqa: BLE001 - fail-open: نمونه‌ی معمولی/تک‌سوالی
+        logger.warning(
+            "follow-up classification failed, defaulting to False: %s",
+            exc,
+        )
+        return False
+
+
+def _is_follow_up_question(question: str, previous_answer: str = "") -> bool:
     normalized = _normalize_question(question)
 
     if normalized in FOLLOW_UP_PHRASES:
@@ -241,10 +303,12 @@ def _is_follow_up_question(question: str) -> bool:
         "این ",
     )
 
-    if len(normalized.split()) <= 5:
-        return normalized.startswith(short_followups)
+    if len(normalized.split()) <= 5 and normalized.startswith(short_followups):
+        return True
 
-    return False
+    # fast-path هیچی رو مچ نکرد -- اگه پاسخ قبلی معتبری داریم، یک تماس
+    # سبک LLM بپرس (به‌جای اینکه بی‌قید‌وشرط False برگردونیم).
+    return _classify_follow_up_llm(question, previous_answer)
 
 
 def _content_to_text(content: Any) -> str:
@@ -302,6 +366,30 @@ def _extract_json_objects(text: str) -> list[dict[str, Any]]:
         pass
 
     return []
+
+
+def _extract_last_assistant_answer(
+    messages: list[dict[str, Any]],
+) -> str:
+    """
+    آخرین پاسخ متنیِ واقعیِ دستیار (نه پیامی که فقط tool_call بوده) رو
+    از تاریخچه پیدا می‌کنه -- برای دادن context به
+    _classify_follow_up_llm استفاده می‌شه.
+    """
+    for message in reversed(messages):
+
+        if message.get("role") != "assistant":
+            continue
+
+        if message.get("tool_calls"):
+            continue
+
+        content = _content_to_text(message.get("content"))
+
+        if content:
+            return content
+
+    return ""
 
 
 def _extract_active_context(
@@ -619,7 +707,8 @@ def run(
     #    current question
     # =========================================================
 
-    is_follow_up = _is_follow_up_question(question)
+    previous_answer = _extract_last_assistant_answer(messages)
+    is_follow_up = _is_follow_up_question(question, previous_answer)
 
     previous_context = _extract_active_context(messages)
 
@@ -689,6 +778,24 @@ def run(
             result["messages"],
         )
 
+    # =========================================================
+    # 9. Log evaluation metrics (faithfulness / relevance / confidence)
+    #    برای محاسبه‌ی تجمعیِ calibration در آینده (نگاه کن به
+    #    memory_store.py::log_evaluation/compute_calibration). این کار
+    #    برای مسیر تک‌سوالی و چندبخشی یکسانه، چون هر دو مسیر نهایتاً از
+    #    همون validate_node مشترک state["validation"] رو پر می‌کنن.
+    #    Best-effort -- شکستش هیچ‌وقت نباید جواب کاربر رو خراب کنه.
+    # =========================================================
+
+    try:
+        memory_store.log_evaluation(
+            chat_id,
+            question,
+            result.get("validation", {}),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("log_evaluation failed: %s", exc)
+
     return result
 
 
@@ -709,8 +816,13 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001
         print(f"[هشدار] ensure_schema شکست خورد -- حافظه‌ی چت کار نخواهد کرد تا رفعش کنی: {exc}")
 
+    try:
+        memory_store.ensure_eval_schema()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[هشدار] ensure_eval_schema شکست خورد -- لاگ ارزیابی/calibration کار نخواهد کرد تا رفعش کنی: {exc}")
+
     result = run(
-        "کدام ۱۰ محصول بیشترین تعداد کامنت مثبت را دریافت کرده‌اند؟ کدام ۱۰ برند بیشترین تعداد کامنت را دریافت کرده‌اند و میانگین امتیاز مشتریان آن‌ها چقدر است؟",
+        "سلام. درمورد مدیریت و افزایش فروش در فروشگاه اینترنتی چیکار میتونی بکنی؟ اطلاعاتی براش داری؟",
         # "نظر کاربران درمورد کالاهای مربوط به مدسه چطوره؟",
     #    "اکثرن از چه برند ها و کتگوری هایی هستن؟",
         chat_id="test-top-selling-product_4"
@@ -727,7 +839,6 @@ def main() -> None:
         print("\nERRORS:")
         for err in errors:
             print(f"  - {err}")
-
 
     # followup = run(
     #     "درآمد ما در 1 سال اخیر چقدر بوده و چند درصد این درآمد به کدام کتگوری ها مربوطه؟",

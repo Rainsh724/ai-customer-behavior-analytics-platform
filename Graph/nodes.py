@@ -180,6 +180,15 @@ def detect_multi_question_node(state: GraphState) -> dict[str, Any]:
     sub_questions = _split_question(question)
     is_multi = len(sub_questions) > 1
 
+    print("\n===== DETECT MULTI-QUESTION =====")
+    if is_multi:
+        print(f"چندبخشی تشخیص داده شد -- {len(sub_questions)} بخش:")
+        for i, q in enumerate(sub_questions, start=1):
+            print(f"  {i}. {q}")
+    else:
+        print("تک‌بخشی -- مسیر عادی agent طی می‌شه.")
+    print("==================================\n")
+
     return {
         "is_multi_question": is_multi,
         "sub_questions": sub_questions if is_multi else [],
@@ -256,6 +265,11 @@ def prepare_subquestion_node(
     )
 
     current_question = sub_questions[index]
+
+    print(
+        f"\n>>> شروع پردازش بخش {index + 1} از "
+        f"{len(sub_questions)}: {current_question}\n"
+    )
 
     initial_messages = [
         base_system_message,
@@ -361,10 +375,19 @@ def sub_tools_node(
         except json.JSONDecodeError:
             arguments = {}
 
+        print("\n----- SUB-QUESTION TOOL CALL -----")
+        print("TOOL:", name)
+        print("ARGS:", arguments)
+        print("-----------------------------------\n")
+
         result = execute_tool_call(
             name,
             arguments,
         )
+
+        print("\n----- SUB-QUESTION TOOL RESULT -----")
+        print(result)
+        print("-------------------------------------\n")
 
         ok = "error" not in result
 
@@ -446,6 +469,8 @@ def sub_finalize_node(
             last_message
         )
 
+        print(f"\n<<< پایان این بخش -- پاسخ:\n{content}\n")
+
         return {
             "final_answer": content
         }
@@ -474,6 +499,8 @@ def sub_finalize_node(
         forced_response
     )
 
+    print(f"\n<<< پایان این بخش (سقف دور رسید) -- پاسخ:\n{content}\n")
+
     return {
         "sub_question_messages": [
             *messages,
@@ -498,9 +525,15 @@ def sub_validate_node(
         [],
     )
 
+    question = state.get(
+        "current_sub_question",
+        "",
+    )
+
     validation = validate_answer(
         final_answer,
         tool_trace,
+        question,
     )
 
     return {
@@ -533,7 +566,7 @@ def prepare_sub_retry_node(
         "role": "system",
         "content": (
             "[SUB-QUESTION VALIDATION FAILED]\n"
-            f"match_score={validation.get('match_score')}\n\n"
+            f"faithfulness_score={validation.get('faithfulness_score')}\n\n"
             "مشکلات پاسخ قبلی:\n"
             + "\n".join(
                 f"- {warning}"
@@ -676,8 +709,33 @@ def combine_subanswers_node(
         response
     )
 
+    print("\n===== ترکیب نهایی پاسخ‌های چندبخشی =====")
+    print(final_answer)
+    print("==========================================\n")
+
+    # ---------------------------------------------------------
+    # مهم: مسیر sub_* (prepare_subquestion/sub_agent/sub_tools/...) از
+    # عمد کاملاً جدا از state["messages"] اصلی کار می‌کنه (روی
+    # sub_question_messages) تا هر بخش context کوچیک و مستقل خودش رو
+    # داشته باشه و توکن اضافه مصرف نشه. اما همین باعث می‌شد که --
+    # برخلاف مسیر تک‌سوالی (که در agent_node هر پاسخ با
+    # {"messages": [response]} به state اضافه می‌شه) -- جواب نهاییِ
+    # ترکیبیِ سوال چندبخشی هیچ‌وقت وارد state["messages"] نشه. نتیجه:
+    # main.py::run() با memory_store.save_messages این پیام assistant
+    # رو در دیتابیس ذخیره نمی‌کرد، و در نتیجه هر follow-up بعدی («همین
+    # جوابتو خلاصه‌تر بده» و مشابه آن) هیچ پیام assistant ای برای پیدا
+    # کردن context قبلی در تاریخچه نمی‌دید.
+    # با اضافه کردن همین کلید "messages" اینجا، جواب نهایی -- درست مثل
+    # مسیر تک‌سوالی -- وارد تاریخچه‌ی اصلی مکالمه می‌شه.
+    # ---------------------------------------------------------
     return {
-        "final_answer": final_answer
+        "final_answer": final_answer,
+        "messages": [
+            {
+                "role": "assistant",
+                "content": final_answer,
+            }
+        ],
     }
 # ============================================================
 
@@ -984,7 +1042,7 @@ def agent_node(state: GraphState) -> dict[str, Any]:
         warning_lines = (
             "\n".join(f"- {w}" for w in warnings)
             if warnings
-            else "- ممیز دلیل مشخصی اعلام نکرد، ولی امتیاز match_score خیلی پایین بود."
+            else "- ممیز دلیل مشخصی اعلام نکرد، ولی امتیاز faithfulness_score خیلی پایین بود."
         )
 
         turn_control_messages.append(
@@ -992,8 +1050,8 @@ def agent_node(state: GraphState) -> dict[str, Any]:
                 "role": "system",
                 "content": (
                     "[VALIDATION FAILED -- یک فرصت دیگه برای اصلاح داری]\n"
-                    f"جواب قبلی‌ات رد شد (match_score="
-                    f"{retry_feedback.get('match_score')}).\n"
+                    f"جواب قبلی‌ات رد شد (faithfulness_score="
+                    f"{retry_feedback.get('faithfulness_score')}).\n"
                     "دلایل/ادعاهای بی‌پایه:\n"
                     f"{warning_lines}\n\n"
                     "اگه مشکل از خودِ کوئری SQL بود (فیلتر اشتباه، ستون "
@@ -1415,7 +1473,8 @@ def finalize_node(state: GraphState):
 def validate_node(state: GraphState) -> dict[str, Any]:
     final_answer = state.get("final_answer", "")
     tool_trace = state.get("tool_trace", [])
-    validation = validate_answer(final_answer, tool_trace)
+    question = _extract_last_user_question(state.get("messages", []))
+    validation = validate_answer(final_answer, tool_trace, question)
 
     warnings = validation.get("warnings") or []
     extra_errors = [f"validate: {w}" for w in warnings] if warnings else []
@@ -1444,7 +1503,7 @@ def prepare_retry_node(state: GraphState) -> dict[str, Any]:
 
     return {
         "retry_feedback": {
-            "match_score": validation.get("match_score"),
+            "faithfulness_score": validation.get("faithfulness_score"),
             "warnings": validation.get("warnings") or [],
         },
         "correction_attempts": state.get("correction_attempts", 0) + 1,
@@ -1552,7 +1611,7 @@ def correct_answer_node(
         "final_answer": corrected,
         "errors": [
             "correct_answer: جواب یک‌بار اصلاح شد "
-            f"(match_score={validation.get('match_score')} "
+            f"(faithfulness_score={validation.get('faithfulness_score')} "
             "زیر آستانه)"
         ],
     }

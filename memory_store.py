@@ -352,6 +352,61 @@ def ensure_schema() -> None:
         raise
 
 
+def ensure_eval_schema() -> None:
+    """
+    Verify that public.eval_log already exists.
+
+    این جدول جدا از chat_memory است -- برای لاگ کردن معیارهای ارزیابیِ
+    هر پاسخ (faithfulness_score / relevance_score / confidence_score --
+    نگاه کن به audit.py) استفاده می‌شه، تا بعداً بشه calibration رو
+    به‌صورت تجمعی/آفلاین از روش حساب کرد (نگاه کن به
+    compute_calibration پایین همین فایل).
+
+    IMPORTANT:
+    درست مثل ensure_schema بالا، این تابع هم CREATE TABLE اجرا نمی‌کنه؛
+    فقط وجودش رو verify می‌کنه. ساخت جدول جزو migration/setup یک‌باره‌ست.
+
+    Expected table:
+
+        public.eval_log
+            id                  BIGSERIAL PRIMARY KEY
+            chat_id             TEXT
+            question            TEXT
+            faithfulness_score  INTEGER
+            relevance_score     INTEGER
+            confidence_score    INTEGER
+            grounded            BOOLEAN
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+    """
+
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT to_regclass('public.eval_log');
+                    """
+                )
+
+                row = cur.fetchone()
+
+                if not row or row[0] is None:
+                    raise RuntimeError(
+                        "جدول public.eval_log وجود ندارد. "
+                        "آن را یک‌بار در PostgreSQL ایجاد کنید."
+                    )
+
+                logger.info(
+                    "جدول public.eval_log با موفقیت پیدا شد."
+                )
+
+    except Exception:
+        logger.exception(
+            "بررسی schema eval_log شکست خورد."
+        )
+        raise
+
+
 # ============================================================
 # Input validation
 # ============================================================
@@ -559,6 +614,195 @@ def delete_messages(chat_id: str) -> None:
         "حافظه‌ی چت '%s' حذف شد.",
         chat_id,
     )
+
+
+# ============================================================
+# Evaluation logging (faithfulness / relevance / confidence)
+# ============================================================
+#
+# نکته‌ی مهم درباره‌ی calibration:
+# calibration یک معیار per-response نیست -- از روی یک جواب تنها نمی‌شه
+# گفت مدل "calibrated" هست یا نه. این معیار فقط با جمع‌آوریِ
+# (confidence_score, faithfulness_score) در طول زمان و مقایسه‌ی آماری‌شون
+# معنی پیدا می‌کنه: آیا جواب‌هایی که مدل بهشون مثلاً ۸۰٪ اطمینان داده،
+# واقعاً حدود ۸۰٪‌شون faithful/درست از آب در اومدن؟
+#
+# پس اینجا دو تابع جداست:
+#   log_evaluation      -- بعد از هر turn (چه تک‌سوالی چه چندبخشی) یک
+#                          سطر در public.eval_log ثبت می‌کنه. Best-effort:
+#                          اگه جدول نبود یا insert شکست خورد، فقط لاگ
+#                          می‌شه و کل درخواست کاربر رو خراب نمی‌کنه.
+#   compute_calibration -- یک تابع تجمعی/آفلاین که از روی لاگ‌های ثبت‌شده
+#                          calibration رو حساب می‌کنه. این تابع در مسیر
+#                          داغِ هر درخواست صدا زده نمی‌شه -- جایی جدا
+#                          (مثلاً یک اسکریپت گزارش‌گیری دوره‌ای، یا یک
+#                          endpoint ادمین) صداش بزن.
+
+
+def log_evaluation(
+    chat_id: str | None,
+    question: str,
+    validation: dict[str, Any],
+) -> None:
+    """
+    یک سطر ارزیابی برای یک turn ثبت می‌کنه.
+
+    اگه validation خاموش بوده (validation.get("skipped")) یا امتیازها
+    None بودن (خودِ تماس ممیزی شکست خورده -- نگاه کن به
+    audit.py::validate_answer)، چیزی ثبت نمی‌شه -- چون داده‌ی معناداری
+    برای لاگ کردن وجود نداره.
+
+    Best-effort: هر خطایی (جدول نبودن، اتصال قطع بودن، ...) فقط لاگ
+    می‌شه؛ لاگ کردن ارزیابی هیچ‌وقت نباید جواب کاربر رو خراب کنه.
+    """
+
+    if not validation or validation.get("skipped"):
+        return
+
+    faithfulness_score = validation.get("faithfulness_score")
+    relevance_score = validation.get("relevance_score")
+    confidence_score = validation.get("confidence_score")
+
+    if faithfulness_score is None and confidence_score is None:
+        # یعنی خودِ تماس ممیزی شکست خورده (validate_answer فیل-سیف
+        # None برگردونده) -- چیزی برای لاگ کردن نداریم.
+        return
+
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO public.eval_log (
+                        chat_id,
+                        question,
+                        faithfulness_score,
+                        relevance_score,
+                        confidence_score,
+                        grounded
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s);
+                    """,
+                    (
+                        chat_id,
+                        question,
+                        faithfulness_score,
+                        relevance_score,
+                        confidence_score,
+                        validation.get("grounded"),
+                    ),
+                )
+
+        logger.info(
+            "ارزیابی برای chat_id='%s' ثبت شد "
+            "(faithfulness=%s, relevance=%s, confidence=%s).",
+            chat_id,
+            faithfulness_score,
+            relevance_score,
+            confidence_score,
+        )
+
+    except Exception:  # noqa: BLE001 - لاگ کردن ارزیابی نباید درخواست رو خراب کنه
+        logger.exception(
+            "ثبت ارزیابی برای chat_id='%s' شکست خورد.",
+            chat_id,
+        )
+
+
+def compute_calibration(
+    chat_id: str | None = None,
+    bucket_size: int = 10,
+) -> dict[str, Any]:
+    """
+    calibration رو به‌صورت تجمعی از روی سطرهای ثبت‌شده در
+    public.eval_log حساب می‌کنه.
+
+    چون هیچ برچسب "درست/غلط"ی از انسان نداریم، از faithfulness_score
+    به‌عنوان proxy برای "درستیِ واقعی" استفاده می‌کنیم (چون خودش قبلاً
+    توسط یک ممیز مستقل -- نه خودِ مدلی که جواب داده -- حساب شده).
+    calibration خوب یعنی: میانگین confidence_score هر بازه‌ی (bucket)
+    نزدیک به میانگین faithfulness_score همون بازه باشه.
+
+    خروجی شامل:
+        sample_count             -- تعداد کل سطرهای استفاده‌شده
+        mean_confidence          -- میانگین کلی confidence_score
+        mean_faithfulness        -- میانگین کلی faithfulness_score
+        mean_absolute_calibration_error
+                                  -- میانگین |confidence - faithfulness|
+                                     به ازای هر بازه (عدد کوچیک‌تر = بهتر)
+        buckets                  -- لیست {range, count, mean_confidence,
+                                     mean_faithfulness} برای هر بازه --
+                                     برای رسم یک reliability diagram
+
+    اگه chat_id داده بشه، فقط همون مکالمه؛ وگرنه کل تاریخچه.
+    این تابع در مسیر داغِ هیچ درخواستی صدا زده نمی‌شه -- جدا (مثلاً یک
+    اسکریپت گزارش‌گیری دوره‌ای) صداش بزن.
+    """
+
+    query = """
+        SELECT confidence_score, faithfulness_score
+        FROM public.eval_log
+        WHERE confidence_score IS NOT NULL
+          AND faithfulness_score IS NOT NULL
+    """
+    params: tuple = ()
+
+    if chat_id:
+        query += " AND chat_id = %s"
+        params = (chat_id,)
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+    if not rows:
+        return {
+            "sample_count": 0,
+            "mean_confidence": None,
+            "mean_faithfulness": None,
+            "mean_absolute_calibration_error": None,
+            "buckets": [],
+        }
+
+    bucket_map: dict[int, list[tuple[int, int]]] = {}
+
+    for confidence, faithfulness in rows:
+        bucket_start = (int(confidence) // bucket_size) * bucket_size
+        bucket_map.setdefault(bucket_start, []).append(
+            (int(confidence), int(faithfulness))
+        )
+
+    buckets = []
+    abs_errors = []
+
+    for bucket_start in sorted(bucket_map):
+        pairs = bucket_map[bucket_start]
+        mean_conf = sum(c for c, _ in pairs) / len(pairs)
+        mean_faith = sum(f for _, f in pairs) / len(pairs)
+        abs_errors.append(abs(mean_conf - mean_faith))
+
+        buckets.append(
+            {
+                "range": f"{bucket_start}-{bucket_start + bucket_size - 1}",
+                "count": len(pairs),
+                "mean_confidence": round(mean_conf, 1),
+                "mean_faithfulness": round(mean_faith, 1),
+            }
+        )
+
+    all_confidence = [c for c, _ in rows]
+    all_faithfulness = [f for _, f in rows]
+
+    return {
+        "sample_count": len(rows),
+        "mean_confidence": round(sum(all_confidence) / len(rows), 1),
+        "mean_faithfulness": round(sum(all_faithfulness) / len(rows), 1),
+        "mean_absolute_calibration_error": round(
+            sum(abs_errors) / len(abs_errors), 1
+        ),
+        "buckets": buckets,
+    }
 
 
 # ============================================================

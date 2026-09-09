@@ -83,7 +83,9 @@ def route_after_agent(state: GraphState) -> str:
 def route_after_validate(state: GraphState) -> str:
     """
     یال شرطی خروجی از Validate -- تصمیم می‌گیره جواب نیاز به اصلاح داره
-    یا نه، بر اساس match_score که audit.py برمی‌گردونه. سه مقصد ممکنه:
+    یا نه، بر اساس faithfulness_score که audit.py برمی‌گردونه (قبلاً
+    اسمش match_score بود -- تغییر فقط اسمیه، منطق همون قبلیه). سه مقصد
+    ممکنه:
 
         - "ok"      -> مستقیم END (جواب قبوله)
         - "retry"    -> prepare_retry -> agent؛ یعنی واقعاً یک فرصت
@@ -96,17 +98,23 @@ def route_after_validate(state: GraphState) -> str:
                         دسترسی به ابزار) -- آخرین خط دفاعی، وقتی سقف
                         retry تموم شده.
 
-    اگه validation خاموش بود (VALIDATION_ENABLED=false) یا match_score
-    به هر دلیلی نداشتیم (مثلاً خودِ تماس validate شکست خورد)، فیل-سیف
-    "ok" برمی‌گردونیم -- بدون امتیاز، نمی‌شه تصمیم به اصلاح گرفت.
+    توجه: relevance_score و confidence_score (محورهای جدید audit.py) در
+    این تصمیم دخیل نیستن -- فقط لاگ/ارزیابی می‌شن (نگاه کن به
+    memory_store.py::log_evaluation). تصمیم retry/correct هنوز فقط بر
+    اساس faithfulness_score گرفته می‌شه.
+
+    اگه validation خاموش بود (VALIDATION_ENABLED=false) یا
+    faithfulness_score به هر دلیلی نداشتیم (مثلاً خودِ تماس validate
+    شکست خورد)، فیل-سیف "ok" برمی‌گردونیم -- بدون امتیاز، نمی‌شه تصمیم
+    به اصلاح گرفت.
     """
     validation = state.get("validation", {})
 
     if validation.get("skipped"):
         return "ok"
 
-    match_score = validation.get("match_score")
-    if match_score is None or match_score >= CORRECTION_THRESHOLD:
+    faithfulness_score = validation.get("faithfulness_score")
+    if faithfulness_score is None or faithfulness_score >= CORRECTION_THRESHOLD:
         return "ok"
 
     attempts = state.get("correction_attempts", 0)
@@ -169,13 +177,13 @@ def route_after_sub_validate(
     if validation.get("skipped"):
         return "next"
 
-    match_score = validation.get(
-        "match_score"
+    faithfulness_score = validation.get(
+        "faithfulness_score"
     )
 
     if (
-        match_score is None
-        or match_score >= CORRECTION_THRESHOLD
+        faithfulness_score is None
+        or faithfulness_score >= CORRECTION_THRESHOLD
     ):
         return "next"
 
