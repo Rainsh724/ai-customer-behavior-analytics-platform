@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { createRoot } from "react-dom/client";
+import remarkGfm from "remark-gfm";
 import {
   Home as HomeIcon, LayoutDashboard, MessageSquareText, Tags, UsersRound,
   Boxes, Info, Phone, Settings, LogOut, ChevronLeft, ChevronDown, Download,
@@ -482,9 +484,11 @@ function Assistant() {
           )}
 
           <div className="chat-messages chat-messages-large">
-            {messages.map((m, i) => <div key={i} className={`message ${m.role}`}>{m.text}</div>)}
-            {loading && <div className="message assistant"><span className="typing-dots">در حال تحلیل اطلاعات<span>.</span><span>.</span><span>.</span></span></div>}
+          {messages.map((m, i) => (<div key={i} className={`message ${m.role}`}>{m.role === "assistant" ? (<ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>) : (m.text)}</div>))}
+          {loading && (<div className="message assistant"><span className="typing-dots"> در حال تحلیل اطلاعات<span>.</span><span>.</span><span>.</span></span></div>)}
           </div>
+
+
           <div className="composer composer-large">
             <button title="افزودن فایل"><Paperclip /></button>
             <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && ask(input)} placeholder="سؤال مدیریتی خود را بنویسید..." />
