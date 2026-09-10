@@ -62,8 +62,6 @@ except ImportError:
 # بنویسه -- دیگه هیچ تماس LLM دومی برای "ترجمه‌ی نیاز به SQL" نداریم.
 # ============================================================
 
-
-
 SCHEMA_CONTEXT = """
 جداول مجاز (فقط از همین‌ها و همین ستون‌ها استفاده کن):
 
@@ -108,14 +106,31 @@ product_negative_feedback_summary(product_id BIGINT PK/FK->products.id,
                  -- periodic رفرش می‌شود، پس ممکن است چند ساعت/روز قدیمی
                  -- باشد -- برای تحلیل‌های سطح-محصول/گزارش‌گیری کافی است.
 
-
 -- ==========================================
 -- جداول تحلیلی و هوشمند (AI & Analytics)
 -- ==========================================
 analytics.feature_user(user_id BIGINT PK/FK->users.user_id, total_spend BIGINT, total_purchases INT, 
                        total_views INT, active_days INT, category_diversity INT, 
                        avg_session_duration_minutes DOUBLE PRECISION, 
-                       night_activity_ratio DOUBLE PRECISION, weekend_activity_ratio DOUBLE PRECISION)
+                       night_activity_ratio DOUBLE PRECISION, weekend_activity_ratio DOUBLE PRECISION,
+                       total_events,total_sessions , total_cart_adds , total_removes , avg_session_events , max_session_events,
+                       max_session_duration_minutes,morning_activity_ratio , afternoon_activity_ratio , evening_activity_ratio,
+                       preferred_hour, preferred_weekday , unique_products_viewed ,unique_products_purchased,
+                       cities_visited,avg_purchase_value , min_purchase_price , max_purchase_price , purchase_frequency , 
+                       purchase_days , brand_diversity)
+analytics.feature_behavior(log_id, hour, day, month, weekday, is_weekend, is_view, is_cart, is_remove, is_purchase)                       
+analytics.feature_product(product_id, total_events, total_views, total_cart_adds, total_removes, total_purchases,unique_viewers, unique_carters, unique_buyers, total_sessions, price_drop_ratio)
+analytics.feature_city(city_id, total_users, total_sessions, total_events, total_views, total_cart_adds, total_purchases, total_removes, unique_products_viewed, unique_products_purchased)
+analytics.feature_category(category_id, total_events, total_views, total_cart_adds, total_purchases, total_removes, unique_viewers, unique_buyers, avg_product_price)
+analytics.feature_brand(brand_id, total_events, total_views, total_cart_adds, total_purchases, total_removes, unique_viewers, unique_buyers)
+analytics.feature_user_product(user_id, product_id, total_events, view_count, cart_count, remove_count, purchase_count, active_days, session_count)
+analytics.feature_user_category(user_id, category_id, total_events, view_count, cart_count, remove_count, purchase_count, category_spend, view_share, purchase_share, spend_share)
+analytics.feature_product_sentiment(product_id, comment_count, avg_rate, avg_like_ratio, total_likes, total_dislikes, total_aspect_mentions, positive_aspect_mentions, negative_aspect_mentions, neutral_aspect_mentions, avg_positive_pct, avg_negative_pct, avg_neutral_pct, positive_aspect_ratio, negative_aspect_ratio, neutral_aspect_ratio)
+analytics.feature_product_aspect(product_id, term, total_mentions, positive_mentions, negative_mentions, neutral_mentions, avg_negative_pct, avg_neutral_pct, avg_positive_pct)
+analytics.feature_brand_sentiment(brand_id, total_comments, total_aspect_mentions, positive_aspect_mentions, negative_aspect_mentions, neutral_aspect_mentions, avg_comment_rating, total_likes, total_dislikes)
+analytics.feature_category_sentiment(category_id, total_comments, total_aspect_mentions, positive_aspect_mentions, negative_aspect_mentions, neutral_aspect_mentions, avg_comment_rating, total_likes, total_dislikes)
+analytics.feature_aspect(term, total_mentions, positive_mentions, negative_mentions, neutral_mentions, avg_negative_pct, avg_neutral_pct, avg_positive_pct)
+analytics.feature_time(hour, iso_weekday, total_events, total_views, total_cart_adds, total_purchases, total_removes)
 
 kpi.rfm_segments(user_id BIGINT PK/FK->users.user_id, recency_days INT, frequency INT, 
                  monetary BIGINT, rfm_code TEXT, rfm_label TEXT)
@@ -123,6 +138,11 @@ kpi.rfm_segments(user_id BIGINT PK/FK->users.user_id, recency_days INT, frequenc
 
 kpi.ml_user_clusters(user_id BIGINT PK/FK->users.user_id, cluster_id INT, cluster_name TEXT)
                      -- مقادیر cluster_name شامل: 'vip_champions', 'night_weekend_buyers', 'active_loyals', 'low_intent_shoppers', 'churned_customers'
+kpi.global_funnel(view_to_cart_pct, cart_to_purchase_pct, overall_conversion_pct, cart_abandonment_pct)`
+kpi.product_360( conversion_rate, comment_count, star_rating, positive_sentiment_pct, sentiment_score, managerial_action_tag)`
+kpi.brand_diagnostics( total_comments, avg_rating, brand_sentiment_score)`
+kpi.aspect_diagnostics(aspect_name, total_mentions, positive_mentions, negative_mentions, negative_impact_pct, aspect_status)`
+
 
 -- ==========================================
 -- نکته‌ی مهم PostgreSQL: تابع ROUND
@@ -135,6 +155,7 @@ kpi.ml_user_clusters(user_id BIGINT PK/FK->users.user_id, cluster_id INT, cluste
 -- در غیر این صورت خطای «function round(double precision, integer) does
 -- not exist» می‌گیری.
 """
+
 
 # اضافه کردن جداول تحلیلی و نام اسکیماها به لیست سفید (Whitelist)
 ALLOWED_TABLES = {
