@@ -864,10 +864,8 @@ def main() -> None:
         print(f"[هشدار] ensure_eval_schema شکست خورد -- لاگ ارزیابی/calibration کار نخواهد کرد تا رفعش کنی: {exc}")
 
     result = run(
-        # "درآمد ما در 1 سال اخیر چقدر بوده و چند درصد این درآمد به کدام کتگوری ها مربوطه؟",
-        "نظر کاربران درمورد کالاهای مربوط به مدسه چطوره؟"
-        "اکثرن از چه برند ها و کتگوری هایی هستن؟",
-        chat_id="test-top-selling-product_6"
+        " در شهرهایی که بیشترین خرید رو داشتند در چه بازه های زمانیی چه محصولاتی رو بیشتر خریدند؟",
+        chat_id="test-top-selling-product_9"
     )
 
     print("\nFINAL ANSWER:")
@@ -883,16 +881,16 @@ def main() -> None:
             print(f"  - {err}")
 
     # followup = run(
-    #     "درآمد ما در 1 سال اخیر چقدر بوده و چند درصد این درآمد به کدام کتگوری ها مربوطه؟",
-    #     chat_id="test-top-selling-product_3"
+    #     "",
+    #     chat_id=""
     # )
 
     # print("\n\n--- سوال ادامه‌دار با حافظه‌ی Postgres ---")
     # print(followup.get("final_answer"))
 
     # followup = run(
-    #     "چه شهرهایی در چه بازه های زمانیی چه محصولاتی رو بیشتر خریدند؟",
-    #     chat_id="test-top-selling-product_3"
+    #     "",
+    #     chat_id=""
     # )
 
     # print("\n\n--- سوال ادامه‌دار با حافظه‌ی Postgres ---")

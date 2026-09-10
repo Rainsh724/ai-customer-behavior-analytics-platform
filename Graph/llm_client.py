@@ -42,7 +42,7 @@ def get_client() -> OpenAI:
     if _client is None:
         _client = OpenAI(
             api_key=os.environ["API_KEY"],
-            base_url="https://api.groq.com/openai/v1",
+            base_url="https://inference.api.nscale.com/v1",
         )
     return _client
 

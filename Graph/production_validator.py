@@ -358,6 +358,31 @@ class ProductionSQLValidator:
             }
 
             group_expr = select_node.args.get("group")
+            # اگه SELECT بیرونی ستونی رو با اسم/کست جدید الیاس کرده باشه
+            # (مثلاً purchase_hour -> hour::int)، ORDER BY معمولاً اسم جدید رو
+            # می‌گیره نه اسم اصلیِ داخل CTE. برای مچ کردن درست با کلیدهای CTE،
+            # این الیاس‌ها رو به ستون منبع‌شون resolve می‌کنیم.
+            alias_to_source: Dict[str, str] = {}
+            for proj in select_node.expressions:
+                if not isinstance(proj, exp.Alias):
+                    continue
+                alias_name = proj.alias_or_name
+                if not alias_name:
+                    continue
+                has_agg_or_window = bool(
+                    proj.find((exp.Sum, exp.Avg, exp.Count, exp.Min, exp.Max, exp.Window))
+                )
+                if has_agg_or_window:
+                    continue
+                underlying_cols = list(proj.this.find_all(exp.Column))
+                if len(underlying_cols) == 1:
+                    alias_to_source[alias_name.lower()] = underlying_cols[0].name.lower()
+
+            resolved_order_columns = set(order_columns)
+            for oc in order_columns:
+                if oc in alias_to_source:
+                    resolved_order_columns.add(alias_to_source[oc])
+
             if group_expr is not None:
                 non_agg_aliases = set()
                 for proj in select_node.expressions:
@@ -368,7 +393,7 @@ class ProductionSQLValidator:
                     if alias_name:
                         non_agg_aliases.add(alias_name.lower())
         
-                if non_agg_aliases and non_agg_aliases.issubset(order_columns):
+                if non_agg_aliases and non_agg_aliases.issubset(resolved_order_columns):
                     continue  # deterministic by construction -- skip the check below
 
             if group_expr is None and cte_dedup_keys:
@@ -388,10 +413,10 @@ class ProductionSQLValidator:
                     else None
                 )
 
-                if cte_keys and cte_keys.issubset(order_columns):
+                if cte_keys and cte_keys.issubset(resolved_order_columns):
                     continue  # deterministic by construction -- passthrough از CTE گروپ‌شده
 
-            if not (order_columns & self.id_like_columns):
+            if not (resolved_order_columns & self.id_like_columns):
                 errors.append(
                     "NON-DETERMINISTIC ORDER BY: a SELECT (possibly inside a CTE) has "
                     "ORDER BY + LIMIT but no id-like tie-breaker column (e.g. "
