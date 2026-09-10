@@ -1311,18 +1311,25 @@ def tools_node(state: GraphState) -> dict[str, Any]:
             }
         )
 
-        tool_trace.append(
-            {
-                "tool": name,
-                "arguments": arguments,
-                "ok": ok,
-                "summary": (
-                    result.get("error")
-                    if not ok
-                    else compact_tool_result(name, result)
-                ),
+        trace_entry = {
+                    "tool": name,
+                    "arguments": arguments,
+                    "ok": ok,
+                    "summary": (
+                        result.get("error")
+                        if not ok
+                        else compact_tool_result(name, result)
+                    ),
+        }
+        if name == "tool_chart" and ok:
+            trace_entry["chart_data"] = {
+                "chart_type": result.get("chart_type"),
+                "title": result.get("title"),
+                "x_field": result.get("x_field"),
+                "y_field": result.get("y_field"),
+                "raw_data": result.get("raw_data"),
             }
-        )
+        tool_trace.append(trace_entry)
 
     # اگه هیچ ابزاری این دور اجرا نشده بود (tool_calls خالی بود -- که طبق
     # چک بالاتر نباید برسه اینجا)، all_errored رو مصنوعی True نکن.

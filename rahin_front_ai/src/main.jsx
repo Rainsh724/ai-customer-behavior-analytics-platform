@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
 import { createRoot } from "react-dom/client";
 import remarkGfm from "remark-gfm";
+
+import ReactMarkdown from "react-markdown";
+
 import {
   Home as HomeIcon, LayoutDashboard, MessageSquareText, Tags, UsersRound,
   Boxes, Info, Phone, Settings, LogOut, ChevronLeft, ChevronDown, Download,
@@ -12,7 +14,8 @@ import {
 } from "lucide-react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer
+  Legend, ResponsiveContainer, PieChart, Pie, Cell, ScatterChart, Scatter,
+  AreaChart, Area
 } from "recharts";
 import "./styles.css";
 
@@ -305,10 +308,10 @@ function Dashboard() {
               <YAxis />
               <Tooltip />
               <Legend />
-              <Line type="monotone" dataKey="views" name="بازدید" strokeWidth={3} />
-              <Line type="monotone" dataKey="carts" name="سبد" strokeWidth={3} />
-              <Line type="monotone" dataKey="purchases" name="خرید" strokeWidth={3} />
-              <Line type="monotone" dataKey="removes" name="حذف از سبد" strokeWidth={3} />
+              <Line type="monotone" dataKey="views" name="بازدید" stroke="#6366f1" strokeWidth={3} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="carts" name="سبد" stroke="#22c55e" strokeWidth={3} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="purchases" name="خرید" stroke="#f59e0b" strokeWidth={3} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="removes" name="حذف از سبد" stroke="#ef4444" strokeWidth={3} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer>
         ) : <EmptyChart text="داده روند ۳۰ روز اخیر از سرویس داشبورد دریافت نشد." />}
@@ -331,9 +334,15 @@ function ChartBlock({ title, data, keyName, valueKey, empty }) {
       <BarChart layout="vertical" data={data} margin={{ right: 15, left: 5 }}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis type="number" />
-        <YAxis type="category" dataKey={keyName} width={105} />
+        <YAxis
+          type="category"
+          dataKey={keyName}
+          width={80}
+          tick={{ fontSize: 12 }}
+          tickFormatter={(v) => (v && String(v).length > 16 ? String(v).slice(0, 16) + "…" : v)}
+        />
         <Tooltip />
-        <Bar dataKey={valueKey} name="تعداد" radius={[0, 8, 8, 0]} />
+        <Bar dataKey={valueKey} name="تعداد" fill="#6366f1" radius={[0, 8, 8, 0]} />
       </BarChart>
     </ResponsiveContainer>
   ) : <EmptyChart text={empty} />}</div>;
@@ -346,8 +355,65 @@ const preparedQuestions = [
   "۵ محصول با بیشترین بازدید اما پایین‌ترین نرخ تبدیل به خرید کدام‌اند؟",
   "۵ برند برتر از نظر تعداد فروش و درآمد در ۳۰ روز اخیر کدام‌اند؟",
   "۵ دسته‌بندی برتر از نظر تعداد خرید و تعداد خریداران کدام‌اند؟",
-  "در چه ساعات و روزهایی بیشترین خرید انجام می‌شود؟"
+  "۵ در چه ساعات و روزهایی بیشترین خرید انجام می‌شود؟"
 ];
+
+const CHART_COLORS = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4", "#a855f7", "#ec4899", "#84cc16"];
+
+function ChatChart({ chart }) {
+  if (!chart || !chart.raw_data || !chart.raw_data.length) return null;
+  const { chart_type, title, x_field, y_field, raw_data } = chart;
+
+  return (
+    <div className="chat-chart-card">
+      {title && <h4 className="chat-chart-title">{title}</h4>}
+      <ResponsiveContainer width="100%" height={280}>
+        {chart_type === "pie" ? (
+          <PieChart>
+            <Tooltip />
+            <Legend />
+            <Pie data={raw_data} dataKey={y_field} nameKey={x_field} outerRadius={100} label>
+              {raw_data.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+            </Pie>
+          </PieChart>
+        ) : chart_type === "scatter" ? (
+          <ScatterChart>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey={x_field} name={x_field} />
+            <YAxis dataKey={y_field} name={y_field} />
+            <Tooltip />
+            <Scatter data={raw_data} fill={CHART_COLORS[0]} />
+          </ScatterChart>
+        ) : chart_type === "area" ? (
+          <AreaChart data={raw_data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey={x_field} />
+            <YAxis />
+            <Tooltip />
+            <Area type="monotone" dataKey={y_field} stroke={CHART_COLORS[0]} fill={CHART_COLORS[0]} fillOpacity={0.3} />
+          </AreaChart>
+        ) : chart_type === "line" ? (
+          <LineChart data={raw_data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey={x_field} />
+            <YAxis />
+            <Tooltip />
+            <Line type="monotone" dataKey={y_field} stroke={CHART_COLORS[0]} strokeWidth={3} dot={{ r: 3 }} />
+          </LineChart>
+        ) : (
+          <BarChart data={raw_data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey={x_field} tick={{ fontSize: 11 }} />
+            <YAxis />
+            <Tooltip />
+            <Bar dataKey={y_field} fill={CHART_COLORS[0]} radius={[8, 8, 0, 0]} />
+          </BarChart>
+        )}
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 
 function Assistant() {
   const STORAGE_KEY = "rahin-chat-sessions";
@@ -406,16 +472,17 @@ function Assistant() {
   };
 
   const deleteChat = (id) => {
-    const next = sessions.filter(s => s.id !== id);
-    if (!next.length) {
-      const fresh = makeSession();
-      persist([fresh]);
-      setActiveId(fresh.id);
-    } else {
-      persist(next);
-      if (id === activeId) setActiveId(next[0].id);
-    }
-  };
+  fetch(`${API_BASE}/api/chat/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+  const next = sessions.filter(s => s.id !== id);
+  if (!next.length) {
+    const fresh = makeSession();
+    persist([fresh]);
+    setActiveId(fresh.id);
+  } else {
+    persist(next);
+    if (id === activeId) setActiveId(next[0].id);
+  }
+};
 
   async function ask(question) {
     const q = question.trim();
@@ -432,8 +499,7 @@ function Assistant() {
       const data = await json("/api/chat", { method: "POST", body: JSON.stringify({ message: q, session_id: active.id }) });
       const answer = data.answer || data.response || "پاسخی از سرویس دریافت نشد.";
       const latest = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-      const next = latest.map(s => s.id === active.id ? { ...s, messages: [...s.messages, { role: "assistant", text: answer, at: Date.now() }], updatedAt: Date.now() } : s);
-      persist(next);
+      const next = latest.map(s => s.id === active.id ? { ...s, messages: [...s.messages, { role: "assistant", text: answer, chart: data.chart || null, at: Date.now() }], updatedAt: Date.now() } : s);        persist(next);
     } catch {
       const latest = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
       const next = latest.map(s => s.id === active.id ? { ...s, messages: [...s.messages, { role: "assistant", text: "اتصال به دستیار برقرار نشد. تنظیمات اتصال سرویس را بررسی کنید.", at: Date.now() }], updatedAt: Date.now() } : s);
@@ -484,11 +550,10 @@ function Assistant() {
           )}
 
           <div className="chat-messages chat-messages-large">
-          {messages.map((m, i) => (<div key={i} className={`message ${m.role}`}>{m.role === "assistant" ? (<ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>) : (m.text)}</div>))}
-          {loading && (<div className="message assistant"><span className="typing-dots"> در حال تحلیل اطلاعات<span>.</span><span>.</span><span>.</span></span></div>)}
+                    {messages.map((m, i) => (<div key={i} className={`message ${m.role}`}>{m.role === "assistant" ? (<ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>) : (m.text)}</div>))}
+                    {loading && (<div className="message assistant"><span className="typing-dots"> در حال تحلیل اطلاعات<span>.</span><span>.</span><span>.</span></span></div>)}
           </div>
-
-
+          
           <div className="composer composer-large">
             <button title="افزودن فایل"><Paperclip /></button>
             <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && ask(input)} placeholder="سؤال مدیریتی خود را بنویسید..." />

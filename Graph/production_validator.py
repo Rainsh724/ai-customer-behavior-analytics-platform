@@ -320,7 +320,13 @@ class ProductionSQLValidator:
                 col.name.lower()
                 for col in order_expr.find_all(exp.Column)
             }
-            if not (order_columns & self.id_like_columns):
+            group_expr = select_node.args.get("group")
+            group_columns = (
+                {col.name.lower() for col in group_expr.find_all(exp.Column)}
+                if group_expr is not None
+                else set()
+            )
+            if not (order_columns & self.id_like_columns) and not (order_columns & group_columns):
                 errors.append(
                     "NON-DETERMINISTIC ORDER BY: a SELECT (possibly inside a CTE) has "
                     "ORDER BY + LIMIT but no id-like tie-breaker column (e.g. "

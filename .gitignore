@@ -34,3 +34,5 @@ test_sandbox/
 Models/
 
 .env
+
+rahin_front_ai/node_modules/
