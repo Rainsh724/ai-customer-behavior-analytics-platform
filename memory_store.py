@@ -376,6 +376,13 @@ def ensure_eval_schema() -> None:
             relevance_score     INTEGER
             confidence_score    INTEGER
             grounded            BOOLEAN
+            turn_index          INTEGER  -- یک‌بار دستی اضافه شده، نگاه کن
+                                          -- به get_turn_ok_map پایین همین
+                                          -- فایل. NULL برای ردیف‌های قدیمی
+                                          -- قبل از این migration اشکالی
+                                          -- نداره (get_turn_ok_map
+                                          -- turn_index IS NULL رو نادیده
+                                          -- می‌گیره).
             created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
     """
 
@@ -643,6 +650,7 @@ def log_evaluation(
     chat_id: str | None,
     question: str,
     validation: dict[str, Any],
+    turn_index: int | None = None,
 ) -> None:
     """
     یک سطر ارزیابی برای یک turn ثبت می‌کنه.
@@ -651,6 +659,12 @@ def log_evaluation(
     None بودن (خودِ تماس ممیزی شکست خورده -- نگاه کن به
     audit.py::validate_answer)، چیزی ثبت نمی‌شه -- چون داده‌ی معناداری
     برای لاگ کردن وجود نداره.
+
+    turn_index (جدید): شماره‌ی turn (شمارش از ۰، بر اساس
+    memory_store.split_into_turns روی history قبل از اضافه‌شدن سوال
+    فعلی) که این ارزیابی مال اون‌ه. با get_turn_ok_map پایین همین فایل
+    خونده می‌شه تا main.py بتونه follow-up context رو فقط از آخرین turn
+    موفق بسازه، نه از کل تاریخچه (نگاه کن به get_turn_ok_map).
 
     Best-effort: هر خطایی (جدول نبودن، اتصال قطع بودن، ...) فقط لاگ
     می‌شه؛ لاگ کردن ارزیابی هیچ‌وقت نباید جواب کاربر رو خراب کنه.
@@ -679,9 +693,10 @@ def log_evaluation(
                         faithfulness_score,
                         relevance_score,
                         confidence_score,
-                        grounded
+                        grounded,
+                        turn_index
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s);
+                    VALUES (%s, %s, %s, %s, %s, %s, %s);
                     """,
                     (
                         chat_id,
@@ -690,13 +705,15 @@ def log_evaluation(
                         relevance_score,
                         confidence_score,
                         validation.get("grounded"),
+                        turn_index,
                     ),
                 )
 
         logger.info(
-            "ارزیابی برای chat_id='%s' ثبت شد "
+            "ارزیابی برای chat_id='%s' turn_index=%s ثبت شد "
             "(faithfulness=%s, relevance=%s, confidence=%s).",
             chat_id,
+            turn_index,
             faithfulness_score,
             relevance_score,
             confidence_score,
@@ -707,6 +724,63 @@ def log_evaluation(
             "ثبت ارزیابی برای chat_id='%s' شکست خورد.",
             chat_id,
         )
+
+
+def get_turn_ok_map(
+    chat_id: str,
+    relevance_threshold: int = 50,
+) -> dict[int, bool]:
+    """
+    برمی‌گردونه {turn_index: ok} برای یک chat_id، از روی public.eval_log.
+
+    turn "موفق" یعنی: grounded=True و relevance_score >= آستانه.
+
+    turnهایی که اصلاً توی eval_log ثبت نشدن (چون validate_answer خودش
+    فیل شده یا validation کلاً skip شده -- نگاه کن به log_evaluation)
+    عمداً در نتیجه غایب می‌مونن و main.py باید آن‌ها را ok=False فرض کنه؛
+    این عمدی محافظه‌کارانه‌ست: بهتره یه context مشکوک/نامعلوم رو کنار
+    بذاریم تا اینکه یه context خراب رو به‌عنوان معتبر به Agent تزریق کنیم.
+
+    نیاز به ستون turn_index در public.eval_log داره (یک‌بار دستی اضافه
+    کن: ALTER TABLE public.eval_log ADD COLUMN IF NOT EXISTS
+    turn_index INTEGER;).
+
+    Best-effort: هر خطایی فقط لاگ می‌شه و dict خالی برمی‌گرده -- یعنی
+    main.py در بدترین حالت فقط is_follow_up=False می‌گیره، نه کرش.
+    """
+
+    chat_id = _validate_chat_id(chat_id)
+    result: dict[int, bool] = {}
+
+    try:
+        with get_conn() as conn:
+            with conn.cursor(
+                cursor_factory=psycopg2.extras.RealDictCursor
+            ) as cur:
+                cur.execute(
+                    """
+                    SELECT turn_index, grounded, relevance_score
+                    FROM public.eval_log
+                    WHERE chat_id = %s AND turn_index IS NOT NULL
+                    ORDER BY created_at ASC;
+                    """,
+                    (chat_id,),
+                )
+
+                for row in cur.fetchall():
+                    ok = bool(row["grounded"]) and (
+                        row["relevance_score"] is not None
+                        and row["relevance_score"] >= relevance_threshold
+                    )
+                    result[row["turn_index"]] = ok
+
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "خواندن eval_log برای chat_id='%s' شکست خورد.",
+            chat_id,
+        )
+
+    return result
 
 
 def compute_calibration(
@@ -862,6 +936,21 @@ def _split_into_turns(
         turns.append(current)
 
     return leading_system, turns
+
+
+def split_into_turns(
+    messages: list[dict[str, Any]],
+) -> tuple[
+    list[dict[str, Any]],
+    list[list[dict[str, Any]]],
+]:
+    """
+    نسخه‌ی عمومیِ _split_into_turns -- برای استفاده از بیرون این ماژول
+    (main.py) بدون تکرار همون منطق. رفتار دقیقاً همون _split_into_turns
+    بالاست: (leading_system, turns) که هر turn با یک پیام role="user"
+    شروع می‌شه.
+    """
+    return _split_into_turns(messages)
 
 
 def _render_turn(
