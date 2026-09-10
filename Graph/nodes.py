@@ -94,40 +94,45 @@ MAX_SUBQUESTIONS = int(os.getenv("MULTI_QUESTION_MAX_PARTS", "4"))
 SUBQUESTION_MAX_ITERATIONS = int(os.getenv("MULTI_QUESTION_SUBITERATIONS", "4"))
 
 MULTI_QUESTION_SPLIT_PROMPT = """
-تو مسئول تشخیص این هستی که آیا یک سوال کاربر (خطاب به یک Agent تحلیل
-کسب‌وکار) واقعاً شامل چند بخش کاملاً مستقل است یا نه.
-
-فقط یک JSON با این فرمت برگردان -- هیچ متن اضافه‌ای ننویس:
-
+You are responsible for detecting whether a user's question (addressed to
+a business-analysis Agent) actually contains several fully independent
+parts or not.
+ 
+Return only a JSON object in this format -- write no extra text:
+ 
 {"is_multi": true|false, "questions": ["...", "..."]}
-
-قوانین مهم -- خیلی محافظه‌کارانه تصمیم بگیر:
-
-- پیش‌فرض false است. فقط وقتی true بده که سوال واقعاً دو یا چند بخش
-  کاملاً مستقل و بدون وابستگی به هم داشته باشد. مثال روشن از چند بخش
-  مستقل: «پرفروش‌ترین محصول کدومه؟ و همچنین نظر کاربرا راجع‌به برند X
-  چیه؟ و نرخ بازگشت کالا در ۳ ماه اخیر چقدره؟» -- سه سوال کاملاً جدا
-  که جواب هرکدوم به جواب بقیه نیاز نداره.
-
-- اگر بخش‌های سوال به هم وابسته‌اند (یکی نیاز به جواب دیگری دارد -- مثل
-  «کدوم محصول پرفروش‌تره و چرا؟» که «چرا» به جواب بخش اول وابسته است،
-  یا سوال‌های علّی طبق قانون «سوالات علّی» که مراحلشون به هم زنجیره‌ست)،
-  is_multi را false بگذار؛ این یک سوال واحد است، نه چند سوال مستقل.
-
-- اگر فقط یک بند/جمله با چند صفت، شرط یا قید است (نه چند سوال جدا با
-  فعل پرسشی جدا)، false.
-
-- اگر true بود، هر بخش را به‌صورت یک سوال کامل و مستقل فارسی بازنویسی
-  کن؛ اگر قید مشترکی (مثل بازه‌ی زمانی، نام محصول/برند یا نوع معیار)
-  فقط یک‌بار در سوال اصلی آمده ولی به همه‌ی بخش‌ها مربوط است، همان قید
-  را در تک‌تک سوال‌های بازنویسی‌شده هم بیاور تا هیچ بخشی این قید مشترک
-  را از دست ندهد.
-
-- هیچ جزئیات، عدد، نام محصول/برند، شرط یا قیدی را که در سوال اصلی آمده
-  حذف نکن؛ فقط بین بخش‌های مستقل تفکیک کن، چیزی از دقت سوال کم نکن.
-
-- حداکثر ۴ بخش. اگر بیشتر از ۴ بخش مستقل تشخیص دادی، مهم‌ترین ۴ تا را
-  انتخاب کن.
+ 
+Important rules -- decide very conservatively:
+ 
+- The default is false. Only return true when the question truly has two
+  or more fully independent parts with no dependency on each other. A
+  clear example of independent parts: "Which product sells best? And also
+  what do users think of brand X? And what's the return rate over the last
+  3 months?" -- three fully separate questions, none of which needs the
+  answer to the others.
+ 
+- If the parts of the question depend on each other (one needs the answer
+  to another -- like "which product sells better, and why?" where "why"
+  depends on the answer to the first part, or causal questions whose steps
+  are chained per the "causal questions" rule), set is_multi to false;
+  this is a single question, not several independent ones.
+ 
+- If it's just one clause/sentence with several adjectives, conditions, or
+  adverbs (not several separate questions with separate interrogative
+  verbs), false.
+ 
+- If true, rewrite each part as a complete, independent Persian question;
+  if a shared qualifier (such as a time range, product/brand name, or
+  metric type) appears only once in the original question but applies to
+  all parts, repeat that same qualifier in every rewritten question so
+  that no part loses this shared qualifier.
+ 
+- Do not drop any detail, number, product/brand name, condition, or
+  qualifier present in the original question; only separate the
+  independent parts, don't lose any precision from the question.
+ 
+- Maximum 4 parts. If you detect more than 4 independent parts, pick the 4
+  most important ones.
 """
 
 

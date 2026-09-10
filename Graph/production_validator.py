@@ -309,24 +309,89 @@ class ProductionSQLValidator:
         # غیرقطعی داخل یه CTE (مثلاً برای انتخاب اولیه‌ی top-N قبل از
         # JOIN با بقیه) از زیر این چک در می‌ره، دقیقاً همون‌طور که یک بار
         # اتفاق افتاد.
+        #
+        # باگ قبلی: وقتی GROUP BY داخل یک CTE بود و ORDER BY+LIMIT روی
+        # یک SELECT بیرونیِ passthrough (بدون GROUP BY خودش، فقط
+        # SELECT ... FROM <cte> ORDER BY ... LIMIT ...)، این چک همیشه رد
+        # می‌شد -- حتی وقتی ستون‌های ORDER BY دقیقاً همون ستون‌های
+        # GROUP BY خودِ CTE بودن (پس از قبل یکتا هستن). این وضعیت
+        # مخصوصاً برای تحلیل‌های بدون هیچ ستون شبه‌کلید طبیعی (مثل
+        # گروه‌بندی ساعت/روزِ هفته: hour_of_day + dow) همیشه شکست
+        # می‌خورد، چون این‌ها اصلاً id-like نیستن و نباید هم باشن.
+        #
+        # راه‌حل: قبل از حلقه‌ی اصلی، برای هر CTE که خودش GROUP BY داره،
+        # کلیدهای یکتاکننده‌ش (alias ستون‌های غیرتجمیعی) رو نگه می‌داریم.
+        # بعد اگه یک SELECT بیرونی بدون GROUP BY خودش، مستقیم (بدون JOIN
+        # اضافه) از یکی از این CTEها بخونه و همه‌ی اون کلیدهای یکتاکننده
+        # هم توی ORDER BY خودش باشن، یکتایی از قبل تضمین شده -- چون
+        # GROUP BY خودِ CTE از قبل هر ترکیب از این ستون‌ها رو فقط یک‌بار
+        # در خروجی نگه داشته.
+        cte_dedup_keys: Dict[str, Set[str]] = {}
+        for cte in qualified_parsed.find_all(exp.CTE):
+            cte_select = cte.this
+            if not isinstance(cte_select, exp.Select):
+                continue
+            cte_group = cte_select.args.get("group")
+            if cte_group is None:
+                continue
+            non_agg = set()
+            for proj in cte_select.expressions:
+                has_agg = bool(proj.find((exp.Sum, exp.Avg, exp.Count, exp.Min, exp.Max)))
+                if has_agg:
+                    continue
+                alias_name = proj.alias_or_name
+                if alias_name:
+                    non_agg.add(alias_name.lower())
+            if non_agg:
+                cte_dedup_keys[cte.alias_or_name.lower()] = non_agg
+
         for select_node in qualified_parsed.find_all(exp.Select):
             order_expr = select_node.args.get("order")
             limit_expr = select_node.args.get("limit")
-
+        
             if order_expr is None or limit_expr is None:
                 continue
-
+        
             order_columns = {
                 col.name.lower()
                 for col in order_expr.find_all(exp.Column)
             }
+
             group_expr = select_node.args.get("group")
-            group_columns = (
-                {col.name.lower() for col in group_expr.find_all(exp.Column)}
-                if group_expr is not None
-                else set()
-            )
-            if not (order_columns & self.id_like_columns) and not (order_columns & group_columns):
+            if group_expr is not None:
+                non_agg_aliases = set()
+                for proj in select_node.expressions:
+                    has_agg = bool(proj.find((exp.Sum, exp.Avg, exp.Count, exp.Min, exp.Max)))
+                    if has_agg:
+                        continue
+                    alias_name = proj.alias_or_name
+                    if alias_name:
+                        non_agg_aliases.add(alias_name.lower())
+        
+                if non_agg_aliases and non_agg_aliases.issubset(order_columns):
+                    continue  # deterministic by construction -- skip the check below
+
+            if group_expr is None and cte_dedup_keys:
+                # شاید این SELECT صرفاً passthrough (بدون JOIN اضافه) از
+                # یک CTEِ از قبل GROUP BY شده باشه.
+                from_expr = select_node.args.get("from_") or select_node.args.get("from")
+                joins = select_node.args.get("joins") or []
+                from_table_name = None
+                if from_expr is not None and not joins:
+                    from_this = from_expr.this
+                    if isinstance(from_this, exp.Table):
+                        from_table_name = from_this.name.lower()
+
+                cte_keys = (
+                    cte_dedup_keys.get(from_table_name)
+                    if from_table_name
+                    else None
+                )
+
+                if cte_keys and cte_keys.issubset(order_columns):
+                    continue  # deterministic by construction -- passthrough از CTE گروپ‌شده
+
+            if not (order_columns & self.id_like_columns):
                 errors.append(
                     "NON-DETERMINISTIC ORDER BY: a SELECT (possibly inside a CTE) has "
                     "ORDER BY + LIMIT but no id-like tie-breaker column (e.g. "

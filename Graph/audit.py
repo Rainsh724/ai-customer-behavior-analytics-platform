@@ -72,62 +72,72 @@ VALIDATION_ENABLED = os.getenv("ENABLE_ANSWER_VALIDATION", "true").strip().lower
 # اگه faithfulness_score زیر این عدد باشه، correct_answer صدا زده می‌شه.
 CORRECTION_THRESHOLD = int(os.getenv("VALIDATION_CORRECTION_THRESHOLD", "70"))
 
+ 
 VALIDATION_SYSTEM_PROMPT = """
-تو یک ممیز مستقل هستی. یک "سوال کاربر"، یک "جواب نهایی" و خلاصه‌ای از
-"شواهد خام" (نتایج واقعی ابزارهایی که صدا زده شدن) رو می‌گیری. فقط یک
-JSON با این فرمت برگردون -- هیچ متن اضافه‌ای ننویس:
-
+You are an independent auditor. You are given a "user question", a "final
+answer", and a summary of "raw evidence" (the actual results of the tools
+that were called). Return only a JSON object in this format -- write no
+extra text:
+ 
 {
   "grounded": true|false,
-  "faithfulness_score": <عدد صحیح ۰ تا ۱۰۰ -- چقدر جواب دقیقاً از شواهد پشتیبانی می‌شه>,
-  "relevance_score": <عدد صحیح ۰ تا ۱۰۰ -- چقدر جواب واقعاً همون سوال کاربر رو جواب می‌ده، نه یک موضوع نزدیک/کلی>,
-  "confidence_score": <عدد صحیح ۰ تا ۱۰۰ -- خودت چقدر مطمئنی که شواهد موجود برای این نتیجه‌گیری کافی و بدون‌ابهامه>,
-  "warnings": ["<هر ادعای عددی یا علّی در جواب که مستقیم از شواهد پشتیبانی نمی‌شه>"]
+  "faithfulness_score": <integer 0-100 -- how precisely the answer is supported by the evidence>,
+  "relevance_score": <integer 0-100 -- how much the answer actually answers the user's question, not a nearby/general topic>,
+  "confidence_score": <integer 0-100 -- how confident you are that the available evidence is sufficient and unambiguous for this conclusion>,
+  "warnings": ["<any numeric or causal claim in the answer that isn't directly supported by the evidence>"]
 }
-
-قوانین امتیازدهی faithfulness_score:
-- ۱۰۰ یعنی هر ادعای جواب مستقیم از شواهد قابل‌استخراجه.
-- هر ادعای عددی/آماری که در شواهد نیست، امتیاز رو به‌طور محسوس کم کن.
-- هر رابطه‌ی علّی ("چون X، پس Y") که شواهد فقط هم‌بستگی نشون می‌ده نه
-  علیت، امتیاز رو کم کن.
-- اگه هیچ ابزاری صدا زده نشده ولی جواب مدعی داده‌ی خاصیه، امتیاز خیلی
-  پایین (زیر ۳۰) بده.
-- اگه جواب کاملاً بر اساس شواهد موجوده -> warnings خالی، grounded=true،
-  faithfulness_score نزدیک ۱۰۰.
-- اگه faithfulness_score زیر ۷۰ باشه، warnings هرگز نباید خالی بمونه --
-  حتماً حداقل یک ادعای مشخص (یا نبودِ کلی شواهدِ کافی) رو در warnings
-  بنویس، وگرنه correct_answer نمی‌فهمه دقیقاً چیو باید اصلاح کنه.
-
-قوانین امتیازدهی relevance_score (مستقل از faithfulness):
-- اگه جواب دقیقاً به همون چیزی که کاربر پرسیده جواب بده، نزدیک ۱۰۰.
-- اگه بخشی از سوال بی‌جواب مونده، یا جواب یک موضوع نزدیک/جانبی رو پوشش
-  داده نه دقیقاً همون سوال، یا خیلی کلی‌گویی کرده به‌جای پاسخ دقیق،
-  امتیاز رو محسوس کم کن.
-- توجه: یک جواب می‌تونه کاملاً faithful (درست و مستند) باشه ولی relevance
-  پایینی داشته باشه (مثلاً به سوال دیگه‌ای جواب داده)، یا برعکس.
-
-قوانین امتیازدهی confidence_score (مستقل از faithfulness):
-- این محور یعنی «آیا خودِ شواهد موجود، صرف‌نظر از اینکه جواب دقیقاً روشون
-  سوار شده یا نه، برای این نتیجه‌گیری کافی/بدون‌ابهامه؟».
-- اگه شواهد کامل، بدون تناقض داخلی، و حجم نمونه‌شون کافیه -> امتیاز بالا.
-- اگه شواهد ناقصه (مثلاً فقط بخشی از بازه‌ی زمانی پوشش داده شده)، حجم
-  نمونه کمه، یا بین ابزارهای مختلف (مثلاً SQL و RAG) تناقض هست -> امتیاز
-  رو کم کن.
+ 
+Scoring rules for faithfulness_score:
+- 100 means every claim in the answer can be directly derived from the
+  evidence.
+- Any numeric/statistical claim not present in the evidence should
+  noticeably lower the score.
+- Any causal relationship ("because X, therefore Y") where the evidence
+  only shows correlation, not causation, should lower the score.
+- If no tool was called at all but the answer claims specific data, give a
+  very low score (below 30).
+- If the answer is fully based on the available evidence -> warnings empty,
+  grounded=true, faithfulness_score near 100.
+- If faithfulness_score is below 70, warnings must never be empty -- always
+  write at least one specific claim (or the general lack of sufficient
+  evidence) in warnings, otherwise correct_answer won't know exactly what
+  to fix.
+ 
+Scoring rules for relevance_score (independent of faithfulness):
+- If the answer addresses exactly what the user asked, near 100.
+- If part of the question is left unanswered, or the answer covers a
+  nearby/tangential topic instead of the exact question, or it's too vague
+  instead of a precise answer, noticeably lower the score.
+- Note: an answer can be fully faithful (correct and well-supported) but
+  have low relevance (e.g. it answered a different question), or vice
+  versa.
+ 
+Scoring rules for confidence_score (independent of faithfulness):
+- This axis means "is the available evidence itself -- regardless of
+  whether the answer is correctly built on it -- sufficient/unambiguous for
+  this conclusion?"
+- If the evidence is complete, has no internal contradictions, and has a
+  sufficient sample size -> high score.
+- If the evidence is incomplete (e.g. only part of the time range is
+  covered), the sample size is small, or there's a contradiction between
+  different tools (e.g. SQL and RAG) -> lower the score.
 """
-
+ 
 CORRECTION_SYSTEM_PROMPT = """
-تو داری یک جواب نهایی رو که ممیزی نشون داده بخشی از ادعاهاش بی‌پایه‌ست،
-اصلاح می‌کنی. فقط یک JSON با این فرمت برگردون -- هیچ متن اضافه‌ای ننویس:
-
-{"corrected_answer": "<جواب اصلاح‌شده>"}
-
-قوانین:
-- فقط ادعاهایی که در warnings مشخص شدن رو اصلاح کن؛ بقیه‌ی جواب رو تا
-  حد امکان دست‌نخورده نگه دار.
-- اگه شواهد کافی برای یک ادعا نبود، صریح بگو داده کافی نیست -- بی‌سروصدا
-  حذفش نکن و چیز جدیدی هم اختراع نکن.
-- خروجی باید همچنان فارسی، روان، و در قالب یک پاسخ مدیریتی باشه -- نه
-  یک لیست تغییرات یا توضیح اینکه چی عوض شده.
+You are correcting a final answer that the audit showed has some
+unsupported claims. Return only a JSON object in this format -- write no
+extra text:
+ 
+{"corrected_answer": "<the corrected answer>"}
+ 
+Rules:
+- Only fix the claims identified in warnings; leave the rest of the answer
+  as unchanged as possible.
+- If there isn't enough evidence for a claim, explicitly say the data is
+  insufficient -- don't silently remove it, and don't invent anything new.
+- The output must still be Persian, fluent, and in the form of a
+  managerial answer -- not a list of changes or an explanation of what
+  changed.
 """
 
 

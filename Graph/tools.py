@@ -36,60 +36,63 @@ from .knowledge_base_agent import run_knowledge_base_tool_debug_placeholder as r
 logger = logging.getLogger(__name__)
 
 
-TOOL_DEFINITIONS: list[dict[str, Any]] = [
+TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
             "name": "tool_sql",
             "description": (
-                "داده‌های ساختاریافته و عددی (فروش، قیمت، تعداد نظرات، آمار KPI) "
-                "رو از دیتابیس Postgres می‌گیره. خودت مستقیم یک کوئری SQL معتبر "
-                "(فقط SELECT یا WITH...SELECT) بر اساس اسکیمای زیر بنویس -- هیچ "
-                "مرحله‌ی میانی‌ای این کوئری رو برات نمی‌سازه.\n\n"
-                "قوانین اجباری:\n"
-                "- فقط SELECT/WITH؛ هیچ‌وقت INSERT/UPDATE/DELETE/DDL ننویس.\n"
-                "- فقط از جدول/ستون‌های اسکیمای زیر استفاده کن.\n"
-                "- همیشه LIMIT بذار (حداکثر ۲۰۰) مگر aggregate/COUNT باشه.\n"
-                "- فقط یک کوئری؛ چند statement با ; از هم جدا ننویس.\n"
-                "- این دیتاست real-time نیست -- برای \"امروز\" هرگز از "
-                "NOW()/CURRENT_DATE واقعی Postgres استفاده نکن. به‌جاش از "
-                "تاریخ مرجعی که در پیام سیستم مکالمه بهت داده شده "
-                "به‌عنوان امروزِ دیتاست استفاده کن (مثلاً به‌جای "
-                "NOW() - INTERVAL '30 days'، از "
-                "'<تاریخ مرجع>'::date - INTERVAL '30 days' بنویس).\n"
-                "- برای خوندن متن نظرات یا جست‌وجوی معنایی از این ابزار استفاده "
-                "نکن -- اون کار tool_rag است.\n\n"
+                "Fetches structured, numeric data (sales, prices, comment "
+                "counts, KPI stats) from the Postgres database. Write a "
+                "valid SQL query yourself directly (SELECT or "
+                "WITH...SELECT only) based on the schema below -- no "
+                "intermediate step builds this query for you.\n\n"
+                "Mandatory rules:\n"
+                "- SELECT/WITH only; never write INSERT/UPDATE/DELETE/DDL.\n"
+                "- Only use tables/columns from the schema below.\n"
+                "- Always include LIMIT (max 200) unless it's an "
+                "aggregate/COUNT query.\n"
+                "- Only one query; never separate multiple statements "
+                "with ;.\n"
+                "- This dataset is not real-time -- for \"today\", never "
+                "use Postgres's real NOW()/CURRENT_DATE. Instead use the "
+                "reference date given to you in the conversation's system "
+                "message as the dataset's \"today\" (e.g. instead of "
+                "NOW() - INTERVAL '30 days', write "
+                "'<reference date>'::date - INTERVAL '30 days').\n"
+                "- Do not use this tool to read review text or do "
+                "semantic search -- that's tool_rag's job.\n\n"
                 """
-                قوانین تخصصی فروش:
-
-                - در user_behavior_logs هر رکورد با event_type='purchase' یک رخداد خرید است.
-                - ستون quantity و order_id در این جدول وجود ندارد.
-                - تعداد فروش/خرید محصول باید با COUNT(*) روی purchase events محاسبه شود.
-                - «پرفروش‌ترین» به‌صورت پیش‌فرض بر اساس units_sold رتبه‌بندی می‌شود.
-                - فقط اگر کاربر صریحاً درباره مبلغ فروش/درآمد پرسید، مبلغ را محاسبه کن.
-                - products.price قیمت فعلی محصول است؛ بنابراین price * purchase_count
-                فقط estimated_sales است، نه لزوماً revenue تاریخی واقعی.
-                - هنگام JOIN کردن products با user_behavior_logs، روی ستون‌های products
-                مثل price مستقیماً SUM/AVG انجام نده؛ ابتدا child table را در CTE
-                تجمیع کن و سپس به products JOIN کن.
-
-
-                قوانین کار با جداول بزرگ:
-
-                - جداول comments، comment_aspects و user_behavior_logs میلیون‌ها رکورد دارند.
-                - هرگز SELECT * روی این جداول اجرا نکن.
-                - قبل از JOIN روی این جداول، ابتدا با WHERE، LIMIT یا aggregation حجم داده را کاهش بده.
-                - برای تحلیل‌های آماری از COUNT، SUM، AVG و GROUP BY استفاده کن.
-                - از JOIN چند جدول بزرگ بدون فیلتر زمانی یا شرط محدودکننده خودداری کن.
+                Sales-specific rules:
+ 
+                - In user_behavior_logs, each record with event_type='purchase' is one purchase event.
+                - The columns quantity and order_id do not exist in this table.
+                - A product's sales/purchase count must be computed with COUNT(*) over purchase events.
+                - "Best-selling" defaults to ranking by units_sold.
+                - Only compute a monetary amount if the user explicitly asks about sales amount/revenue.
+                - products.price is the product's current price, so price * purchase_count
+                is only an estimated_sales figure, not necessarily real historical revenue.
+                - When joining products with user_behavior_logs, don't run SUM/AVG directly on
+                products columns like price; first aggregate the child table in a CTE
+                and only then JOIN to products.
+ 
+ 
+                Rules for working with large tables:
+ 
+                - The comments, comment_aspects, and user_behavior_logs tables have millions of rows.
+                - Never run SELECT * on these tables.
+                - Before joining these tables, first reduce the data volume with WHERE, LIMIT, or aggregation.
+                - Use COUNT, SUM, AVG, and GROUP BY for statistical analysis.
+                - Avoid joining several large tables without a time filter or a limiting condition.
                 """
-                f"اسکیمای دیتابیس:\n{SCHEMA_CONTEXT}"
+                f"Database schema:\n{SCHEMA_CONTEXT}"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "sql": {
                         "type": "string",
-                        "description": "متن کامل کوئری SQL (SELECT/WITH) که خودت بر اساس اسکیمای بالا نوشتی.",
+                        "description": "The full SQL query text (SELECT/WITH) that you wrote yourself based on the schema above.",
                     }
                 },
                 "required": ["sql"],
@@ -101,23 +104,22 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "function": {
             "name": "tool_rag",
             "description": (
-                "جست‌وجوی معنایی در متن نظرات مشتری‌ها برای پیدا کردن "
-                "شواهد کیفی درباره‌ی یک موضوع.\n\n"
-
-                "قانون بسیار مهم درباره product_id:\n"
-                "اگر product_id مشخص شده باشد، فقط نظرات همان product_id "
-                "شاهد معتبر محسوب می‌شوند.\n"
-
-                "اگر product_id مشخص است و نتیجه hit_count=0 دارد، "
-                "نباید برای جبران آن product_id را حذف کنی یا جست‌وجوی عمومی "
-                "انجام دهی و نتایج محصولات مشابه را به این محصول نسبت بدهی.\n"
-
-                "اگر evidence دقیق محصول پیدا نشد، باید نبود evidence را "
-                "صریحاً اعلام کنی.\n\n"
-
-                "search_topic باید جهت سوال را منعکس کند؛ مثلاً برای افزایش فروش "
-                "'دلایل رضایت و استقبال از محصول X' و برای شکایت "
-                "'دلایل نارضایتی و شکایت از محصول X'."
+                "Semantic search over customer review text to find "
+                "qualitative evidence about a topic.\n\n"
+                "Very important rule about product_id:\n"
+                "If product_id is specified, only reviews for that exact "
+                "product_id count as valid evidence.\n\n"
+                "If product_id is specified and the result has "
+                "hit_count=0, you must not drop the product_id or run a "
+                "general search to compensate, and must not attribute "
+                "results from similar products to this product.\n\n"
+                "If no precise evidence for the product was found, you "
+                "must explicitly state that no evidence was found.\n\n"
+                "search_topic must reflect the direction of the question; "
+                "e.g. for an increase in sales, use 'reasons for "
+                "satisfaction and positive reception of product X', and "
+                "for a complaint, use 'reasons for dissatisfaction and "
+                "complaints about product X'."
             ),
             "parameters": {
                 "type": "object",
@@ -125,10 +127,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "search_topic": {
                         "type": "string",
                         "description": (
-                            "موضوع/سوالی که باید در نظرات جست‌وجو بشه -- برای "
-                            "پیدا کردن دلایل نارضایتی، موضوع رو در همون جهت "
-                            "بنویس (مثلاً 'دلایل نارضایتی و شکایت از محصول X')، "
-                            "نه فقط اسم محصول به‌تنهایی."
+                            "The topic/question to search for in the "
+                            "reviews -- to find reasons for "
+                            "dissatisfaction, phrase the topic in that "
+                            "same direction (e.g. 'reasons for "
+                            "dissatisfaction and complaints about product "
+                            "X'), not just the product name alone."
                         ),
                     },
                     "product_id": {"type": ["integer", "null"]},
@@ -142,68 +146,69 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "function": {
             "name": "tool_chart",
             "description": (
-                "وقتی کاربر صریحاً نمودار/چارت/داشبورد/مصورسازی خواسته، یک "
-                "نمودار واقعی از داده‌ی دیتابیس می‌سازه و در سه فرمت آماده‌ی "
-                "رندر (Chart.js، ECharts، Plotly) برمی‌گردونه -- فرانت‌اند هرکدوم "
-                "از این سه کتابخانه رو استفاده کنه، مستقیم قابل‌استفاده‌ست.\n\n"
-                "خودت مستقیم یک کوئری SQL (دقیقاً با همون قوانین و اسکیمای "
-                "ابزار tool_sql) بنویس که داده‌ی نمودار رو برگردونه -- معمولاً "
-                "یک ستون برچسب/دسته (برای محور X) و یک ستون عددی (برای محور Y)، "
-                f"با GROUP BY مناسب. انواع مجاز chart_type: {sorted(VALID_CHART_TYPES)}."
+                "When the user explicitly asks for a chart/graph/"
+                "dashboard/visualization, builds a real chart from the "
+                "database data and returns it in three render-ready "
+                "formats (Chart.js, ECharts, Plotly) -- whichever of "
+                "these three libraries the frontend uses, it's directly "
+                "usable.\n\n"
+                "Write a SQL query yourself directly (following exactly "
+                "the same rules and schema as tool_sql) that returns the "
+                "chart's data -- usually one label/category column (for "
+                "the X axis) and one numeric column (for the Y axis), "
+                f"with an appropriate GROUP BY. Allowed chart_type values: {sorted(VALID_CHART_TYPES)}."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "sql": {
                         "type": "string",
-                        "description": "کوئری SELECT که داده‌ی نمودار رو برمی‌گردونه (طبق قوانین/اسکیمای tool_sql).",
+                        "description": "SELECT query that returns the chart data (following tool_sql's rules/schema).",
                     },
                     "chart_type": {
                         "type": "string",
                         "enum": sorted(VALID_CHART_TYPES),
-                        "description": "نوع نمودار مناسب سوال کاربر.",
+                        "description": "Chart type matching the user's question.",
                     },
                     "title": {"type": ["string", "null"]},
                     "x_field": {
                         "type": ["string", "null"],
-                        "description": "نام ستونی از نتیجه‌ی sql که باید محور X/برچسب باشه؛ اگه ندی حدس زده می‌شه.",
+                        "description": "Column name from the sql result that should be the X axis/label; guessed if omitted.",
                     },
                     "y_field": {
                         "type": ["string", "null"],
-                        "description": "نام ستونی از نتیجه‌ی sql که باید محور Y/مقدار باشه؛ اگه ندی حدس زده می‌شه.",
+                        "description": "Column name from the sql result that should be the Y axis/value; guessed if omitted.",
                     },
                 },
                 "required": ["sql", "chart_type"],
             },
         },
     },
-
-    # ============================================================
-    # tool_knowledge_base -- غیرفعال تا آماده شدن محتوای پایگاه‌دانش.
-    # وقتی knowledge_base_agent.py پیاده‌سازی شد، این بلوک رو از حالت
-    # کامنت خارج کن (و همراهش execute_tool_call پایین + قانون مربوطه در
-    # main.py::AGENT_SYSTEM_PROMPT).
-    # ============================================================
+ 
+    # tool_knowledge_base -- disabled until knowledge-base content is ready.
     {
         "type": "function",
         "function": {
             "name": "tool_knowledge_base",
             "description": (
-                "جست‌وجو در پایگاه‌دانش آموزشی درباره‌ی چطور باید پیشنهاد "
-                "مدیریتی داد (چارچوب‌ها/اصول تحلیل کسب‌وکار). قبل از دادن "
-                "هرگونه پیشنهاد یا توصیه‌ی مدیریتی به کاربر، حتماً این ابزار "
-                "رو صدا بزن تا پیشنهادت رو بر اساس این دانش + دانش عمومی "
-                "خودت بسازی، نه فقط از حافظه‌ی خودت.\n\n"
-                "⚠️ فعلاً نسخه‌ی placeholder/دیباگ (خلاصه‌ی کلی و ثابت) فعاله، "
-                "نه جست‌وجوی برداری واقعی -- تا وقتی بقیه‌ی اعضا نسخه‌ی نهایی "
-                "رو بسازن."
+                "Searches the training knowledge base for how to give "
+                "managerial suggestions (business-analysis "
+                "frameworks/principles). Before giving any suggestion or "
+                "managerial recommendation to the user, you must always "
+                "call this tool first, so you build your suggestion from "
+                "this knowledge plus your own general knowledge, not from "
+                "memory alone.\n\n"
+                "\u26a0\ufe0f A placeholder/debug version (a general, "
+                "generic summary) is currently active, not real vector "
+                "search -- until the rest of the team builds the final "
+                "version."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "موضوع/سوالی که باید در پایگاه‌دانش جست‌وجو بشه.",
+                        "description": "The topic/question to search for in the knowledge base.",
                     }
                 },
                 "required": ["query"],
@@ -211,7 +216,6 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
 ]
-
 
 def execute_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """

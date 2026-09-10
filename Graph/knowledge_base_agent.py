@@ -97,24 +97,26 @@ def run_knowledge_base_tool(query: str) -> dict[str, Any]:
 # ============================================================
 
 _KB_PLACEHOLDER_SYSTEM_PROMPT = """
-تو داری به‌جای یک پایگاه‌دانش آموزشی واقعی (که هنوز آماده نشده) عمل
-می‌کنی. فقط بر اساس دانش عمومی خودت درباره‌ی اصول/چارچوب‌های تحلیل
-کسب‌وکار و مدیریت فروشگاه آنلاین (نه هیچ داده‌ی اختصاصی این فروشگاه --
-آن فقط باید از SQL/RAG بیاد)، یک خلاصه‌ی کوتاه و کاربردی، دقیقاً مرتبط
-با موضوع query زیر بساز.
-
-فقط یک JSON با این فرمت برگردان -- هیچ متن اضافه‌ای ننویس:
-
-{"summary": "<خلاصه‌ی فارسی، مختصر و کاربردی>"}
-
-قوانین:
-- فقط چارچوب/اصول کلی مدیریتی مرتبط با موضوع query را بنویس -- هیچ
-  عدد، نام محصول/برند یا نتیجه‌ی خاص خودت را اختراع نکن؛ آن‌ها باید از
-  SQL/RAG واقعی این مکالمه بیایند، نه از این خلاصه.
-- اگر query کاملاً خارج از حوزه‌ی تحلیل کسب‌وکار/فروشگاه آنلاین بود،
-  یک جمله بگو که این پایگاه‌دانش برای این موضوع چیزی ندارد.
-- خروجی فارسی، روان و کوتاه (چند جمله تا چند بند کوتاه) باشد -- نه یک
-  مقاله‌ی کامل.
+You are standing in for a real training knowledge base (not ready yet).
+Based only on your own general knowledge of business-analysis
+principles/frameworks and online-store management (not any data specific
+to this store -- that must only come from SQL/RAG), produce a short,
+practical summary directly relevant to the topic of the query below.
+ 
+Return only a JSON object in this format -- write no extra text:
+ 
+{"summary": "<a concise, practical Persian summary>"}
+ 
+Rules:
+- Only write general managerial frameworks/principles relevant to the
+  query's topic -- never invent any number, product/brand name, or
+  specific result of your own; those must come from this conversation's
+  real SQL/RAG, not from this summary.
+- If the query is completely outside the scope of business/online-store
+  analysis, say in one sentence that this knowledge base has nothing for
+  this topic.
+- The output must be Persian, fluent, and short (a few sentences to a few
+  short paragraphs) -- not a full article.
 """
 
 
@@ -144,16 +146,19 @@ def run_knowledge_base_tool_debug_placeholder(query: str) -> dict[str, Any]:
 
     if not summary:
         summary = (
-            "پایگاه‌دانش آموزشی هنوز آماده نیست و تولید خلاصه‌ی مرتبط با "
-            "این موضوع هم موقتاً ممکن نشد -- پیشنهاد را فقط بر پایه‌ی "
-            "دانش عمومی خودت و شواهد SQL/RAG همین مکالمه بساز."
+           "The training knowledge base isn't ready yet, and generating a "
+           "summary for this specific topic wasn't possible either -- "
+           "build the suggestion only on your own general knowledge and "
+           "the SQL/RAG evidence from this conversation."
+
         )
 
     return {
         "query": query,
         "source": (
-            "DEBUG_PLACEHOLDER -- تولیدشده از دانش عمومی LLM، نه از "
-            "سند آموزشی واقعی؛ جایگزین نسخه‌ی واقعی نشده"
+           "DEBUG_PLACEHOLDER -- generated from the LLM's general "
+           "knowledge, not from a real training document; not yet "
+           "replaced by the real version"
         ),
         "summary": summary,
     }
