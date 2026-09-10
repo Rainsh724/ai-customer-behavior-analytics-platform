@@ -42,14 +42,23 @@ def get_client() -> OpenAI:
     if _client is None:
         _client = OpenAI(
             api_key=os.environ["API_KEY"],
-            base_url="https://inference.api.nscale.com/v1",
+            base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
         )
     return _client
 
 
 CHAT_MODEL = os.getenv(
     "AGENT_LLM_MODEL",
-    "openai/gpt-oss-120b",
+    "qwen3.8-flash",
+)
+
+# برای تماس‌های JSON کوچیک/طبقه‌بندی (call_llm_json: follow-up classifier،
+# multi-question split، validation/correction، KB placeholder) نیازی به
+# مدل بزرگ اصلی نیست -- یه مدل کوچیک‌تر همون دقت کافی رو با هزینه و
+# latency کمتر می‌ده.
+CLASSIFIER_LLM_MODEL = os.getenv(
+    "CLASSIFIER_LLM_MODEL",
+    "qwen3.8-flash",
 )
 
 # باید دقیقاً همون مدلی باشه که comments_embedding باهاش ساخته شده.
@@ -78,7 +87,7 @@ def _call_with_rate_limit_retry(fn: Callable[[], _T]) -> _T:
                 break
             wait_seconds = RATE_LIMIT_BASE_DELAY_SECONDS * (2 ** attempt)
             logger.warning(
-                "Rate limit از Groq (تلاش %d/%d) -- %.1f ثانیه صبر می‌کنیم و دوباره امتحان می‌کنیم...",
+                "Rate limit از API (تلاش %d/%d) -- %.1f ثانیه صبر می‌کنیم و دوباره امتحان می‌کنیم...",
                 attempt + 1,
                 MAX_RATE_LIMIT_RETRIES + 1,
                 wait_seconds,
@@ -88,16 +97,27 @@ def _call_with_rate_limit_retry(fn: Callable[[], _T]) -> _T:
     raise last_exc
 
 
-def call_llm_json(system_prompt: str, user_prompt: str) -> dict[str, Any]:
+def call_llm_json(
+    system_prompt: str,
+    user_prompt: str,
+    model: str | None = None,
+) -> dict[str, Any]:
     """
     یک تماس LLM که مجبورش می‌کنیم فقط JSON خروجی بده (response_format json_object).
     برای ابزارهای داخلی (مثل مولد SQL) استفاده می‌شه، نه برای خودِ Agent.
+
+    پیش‌فرض از CLASSIFIER_LLM_MODEL (مدل کوچیک‌تر) استفاده می‌کنه، چون
+    همه‌ی صداکننده‌های فعلی (follow-up classifier، multi-question split،
+    validation/correction، KB placeholder) کارهای طبقه‌بندی/ساختاردهی
+    ساده‌ان، نه reasoning پیچیده. اگه یه فراخوانیِ خاص به مدل قوی‌تر نیاز
+    داشت، می‌تونه صریحاً model=CHAT_MODEL رو پاس بده.
     """
     client = get_client()
+    resolved_model = model or CLASSIFIER_LLM_MODEL
 
     def _do_call():
         return client.chat.completions.create(
-            model=CHAT_MODEL,
+            model=resolved_model,
             temperature=0,
             response_format={"type": "json_object"},
             messages=[

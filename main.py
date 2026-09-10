@@ -600,10 +600,10 @@ def _build_follow_up_system_context(
     context: dict[str, Any],
 ) -> str:
     """
-    Context فعال را به‌صورت system message به Agent می‌دهد.
+    Provides the active context to the Agent as a system message.
 
-    این بخش عمداً explicit است تا LLM نتواند context را
-    به‌صورت دلخواه reinterpret کند.
+    This section is intentionally explicit to prevent the LLM
+    from freely reinterpreting the existing context.
     """
 
     product_id = context.get("product_id")
@@ -617,8 +617,8 @@ def _build_follow_up_system_context(
 
     lines = [
         "[ACTIVE CONVERSATION CONTEXT]",
-        "این context از نتیجه‌ی معتبر قبلی استخراج شده است.",
-        "برای Follow-up باید دقیقاً همین context را حفظ کنی.",
+        "This context was extracted from a previously validated result.",
+        "For follow-up questions, you MUST preserve this context exactly.",
     ]
 
     if product_id is not None:
@@ -648,11 +648,26 @@ def _build_follow_up_system_context(
     lines.extend(
         [
             "",
-            "قانون مهم:",
-            "اگر سؤال فعلی Follow-up کوتاه است، context بالا را تغییر نده.",
-            "محصول، product_id، metric و بازه‌ی زمانی را دوباره تفسیر نکن.",
-            "اگر سؤال «چرا؟» است، آن را ادامه‌ی سؤال قبلی بدان.",
-            "برای «چرا؟» ranking جدید یا بازه‌ی زمانی جدید نساز.",
+            "IMPORTANT RULES:",
+            "If the current question is a short follow-up question, do NOT modify the context above.",
+            "Do NOT reinterpret the product, product_id, metric, or time period.",
+            "If the user asks 'Why?', treat it as a continuation of the previous question.",
+            "For a 'Why?' question, do NOT create a new ranking or a new time range.",
+            "",
+            "IMPORTANT EXCEPTION:",
+            "If the current question asks for an opinion, recommendation, idea, or advice "
+            "(for example: 'What do you think?', 'What should I do?', "
+            "'Do you have any ideas?', 'What is your recommendation?'), "
+            "the user has switched from a data reporting mode to a management consulting mode.",
+            "",
+            "In this case, keep the context above (product/metric/time period) "
+            "as the subject of the recommendation, but do NOT generate another SQL query "
+            "just to retrieve more details about the same data.",
+            "",
+            "According to System Prompt Rule 8, call tool_knowledge_base first and use "
+            "its business knowledge together with the available conversation data "
+            "to provide a practical management recommendation or idea.",
+            "Do NOT return another data table instead of a strategic recommendation.",
         ]
     )
 
@@ -864,7 +879,7 @@ def main() -> None:
         print(f"[هشدار] ensure_eval_schema شکست خورد -- لاگ ارزیابی/calibration کار نخواهد کرد تا رفعش کنی: {exc}")
 
     result = run(
-        " در شهرهایی که بیشترین خرید رو داشتند در چه بازه های زمانیی چه محصولاتی رو بیشتر خریدند؟",
+        "حالا نظر تو چیه با این وضعیت چیکارش کنم چه ایده ای داری؟",
         chat_id="test-top-selling-product_9"
     )
 

@@ -810,19 +810,30 @@ def _build_followup_control_message(
     conversation_context: dict[str, Any],
 ) -> dict[str, Any] | None:
     """
-    پیام سیستمیِ «[FOLLOW-UP CONTROL]» رو از conversation_context می‌سازه.
+    Builds the "[FOLLOW-UP CONTROL]" system message from conversation_context.
 
-    از agent_node جدا شده تا multi_question_node (پردازش هر بخشِ سوال
-    چندبخشی) هم بتونه دقیقاً همون منطق/متن رو -- بدون کپی -- استفاده کنه.
-    اگه سوال follow-up نباشه، None برمی‌گردونه.
+    Extracted from agent_node so multi_question_node (processing each part
+    of a multi-part question) can reuse exactly the same logic and wording
+    without duplication.
+
+    Returns None if this is not a follow-up question.
     """
+
     if not conversation_context.get("is_follow_up"):
         return None
 
     context_parts = [
         "[FOLLOW-UP CONTROL]",
-        "این سؤال ادامه‌ی مستقیم سؤال قبلی است.",
-        "محصول، metric و بازه‌ی قبلی را تغییر نده.",
+        "This question is a direct continuation of the previous question.",
+        "Do NOT change the previous product, metric, or time period.",
+        "",
+        "EXCEPTION: If this question asks for an opinion, recommendation, "
+        "idea, or advice (for example: 'What do you think?', 'What should I do?', "
+        "'Do you have any ideas?'), do NOT create a new SQL query to further "
+        "analyze the same data. According to Rule 8, call tool_knowledge_base "
+        "first and use the context below (product/metric/time period) to provide "
+        "a practical management recommendation or business idea, not another "
+        "data table.",
     ]
 
     if conversation_context.get("product_id") is not None:
@@ -869,9 +880,9 @@ def _build_followup_control_message(
     context_parts.extend(
         [
             "",
-            "برای «چرا؟» ranking جدید انجام نده.",
-            "بازه‌ی زمانی جدید نساز.",
-            "محصول یا product_id را تغییر نده.",
+            "For a 'Why?' question, do NOT perform a new ranking.",
+            "Do NOT create a new time period.",
+            "Do NOT change the product or product_id.",
         ]
     )
 
@@ -945,7 +956,7 @@ def _build_bounded_llm_messages(
         None,
     )
 
-    recent_messages = non_system_messages[-6:]
+    recent_messages = non_system_messages[-4:]
 
     pinned_messages: list[dict[str, Any]] = []
     if original_user_message is not None and original_user_message not in recent_messages:
@@ -1428,18 +1439,25 @@ def finalize_node(state: GraphState):
     forced_control_message = {
         "role": "system",
         "content": (
-            "دیگه اجازه‌ی هیچ tool_call جدیدی نداری -- سقف تعداد "
-            "دور یا تلاش‌های ابزار پر شده. همین الان، فقط بر اساس "
-            "نتایج ابزارهایی که تا همین‌جا واقعاً اجرا شدن (نه چیزی "
-            "که هنوز می‌خواستی اجرا کنی)، یک پاسخ نهایی فارسی، روان و "
-            "مدیریتی بده. اگه نتایج تا این‌جا برای پاسخ کامل به سوال "
-            "کافی نبود، صریح بگو کدوم بخش با داده‌ی موجود قابل تأیید "
-            "نیست -- ولی هر بخشی که واقعاً از نتایج ابزارها پشتیبانی "
-            "می‌شه رو کامل گزارش کن؛ آن‌ها رو با بهانه‌ی 'داده‌ی کافی "
-            "نیست' کنار نذار."
-            "هرگز از داده‌های خروجی ابزار فراتر نرو. "
-            "اگر داده فقط correlation نشان می‌دهد، علت یا توصیه قطعی ارائه نکن."
-            "Aspectها را دقیقاً با همان نام گزارش کن و معنی اضافه برای آنها نساز."
+            "You are not allowed to make any additional tool calls. "
+            "The maximum number of tool rounds or attempts has been reached. "
+            "Now provide a final answer in Persian that is clear, natural, "
+            "and management-oriented, using only the tool results that were "
+            "actually executed so far (not information from tools you intended "
+            "to call but did not run). "
+
+            "If the available tool results are not sufficient to fully answer "
+            "the user's question, explicitly state which parts cannot be verified "
+            "with the available data. However, do not discard information that is "
+            "actually supported by the tool results by simply saying 'there is "
+            "not enough data'. Report all verified findings completely. "
+
+            "Never go beyond the evidence provided by tool outputs. "
+            "If the data only shows correlation, do not present a definite cause "
+            "or a guaranteed recommendation. "
+
+            "Report aspects using exactly their original names and do not invent "
+            "or add interpretations to their meanings."
         ),
     }
 

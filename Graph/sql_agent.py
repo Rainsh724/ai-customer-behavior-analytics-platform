@@ -63,7 +63,7 @@ except ImportError:
 # ============================================================
 
 SCHEMA_CONTEXT = """
-جداول مجاز (فقط از همین‌ها و همین ستون‌ها استفاده کن):
+Allowed tables (use only these tables and these columns):
 
 products(id BIGINT PK, title_fa TEXT, brand_id INT FK->brands.brand_id,
          category_id INT FK->categories.category_id, seller_id INT FK->sellers.seller_id,
@@ -79,7 +79,7 @@ cities(city_id PK, name TEXT)
 sessions(session_id TEXT PK, user_id FK->users.user_id, city_id FK->cities.city_id)
 
 user_behavior_logs(log_id PK, session_id FK->sessions.session_id,
-                    product_id FK->products.id, event_type TEXT,  -- مثل 'view','add_to_cart','purchase'
+                    product_id FK->products.id, event_type TEXT,  -- e.g. 'view','add_to_cart','purchase'
                     timestamp TIMESTAMPTZ)
 
 comments(id BIGINT PK, product_id FK->products.id, is_buyer BOOLEAN,
@@ -87,27 +87,29 @@ comments(id BIGINT PK, product_id FK->products.id, is_buyer BOOLEAN,
          raw_text_normalized TEXT, created_at TIMESTAMPTZ)
 
 comments_embedding(id BIGINT PK/FK->comments.id, embedded_comment VECTOR(768))
-                    -- فقط برای RAG/similarity search؛ برای tool_sql ازش استفاده نکن.
+                 -- Only for RAG/similarity search; do not use this from tool_sql.
 
 comment_aspects(aspect_id PK, comment_id FK->comments.id, term TEXT,
                  sentiment TEXT, negative_pct DOUBLE, neutral_pct DOUBLE, positive_pct DOUBLE)
-                 -- برای شمارش/آمار جنبه‌ها قابل‌استفاده‌ست؛ برای *خوندن متن*
-                 -- نظرات و جست‌وجوی معنایی، اون کار tool_rag است نه tool_sql.
+                            -- Usable for counting/aspect statistics; for *reading the
+                            -- actual text* of reviews and semantic search, that's
+                            -- tool_rag's job, not tool_sql's.
 
 product_negative_feedback_summary(product_id BIGINT PK/FK->products.id,
                  avg_negative_pct DOUBLE, comment_cnt BIGINT)
-                 -- یک جدول خلاصه‌ی از پیش محاسبه‌شده در سطح محصول است.
-                 -- هر وقت نیاز به میانگین درصد بازخورد منفی (negative_pct)
-                 -- در سطح یک محصول (نه تک‌تک نظرات) داری، همیشه از همین
-                 -- جدول بخوان -- هرگز مستقیم comments را با comment_aspects
-                 -- JOIN نکن تا این آمار را دوباره از صفر محاسبه کنی؛ آن
-                 -- JOIN روی کل دیتاست بسیار کند است (میلیون‌ها ردیف) و این
-                 -- جدول همان نتیجه را از پیش محاسبه کرده. توجه: این جدول
-                 -- periodic رفرش می‌شود، پس ممکن است چند ساعت/روز قدیمی
-                 -- باشد -- برای تحلیل‌های سطح-محصول/گزارش‌گیری کافی است.
+                 -- A pre-computed, product-level summary table. Whenever you
+                 -- need the average negative-feedback percentage
+                 -- (negative_pct) at the product level (not per individual
+                 -- comment), always read from this table -- never JOIN
+                 -- comments with comment_aspects directly to recompute this
+                 -- from scratch; that JOIN is very slow over the full
+                 -- dataset (millions of rows), and this table already has
+                 -- the same result precomputed. Note: this table refreshes
+                 -- periodically, so it may be a few hours/days stale --
+                 -- fine for product-level analysis/reporting.
 
 -- ==========================================
--- جداول تحلیلی و هوشمند (AI & Analytics)
+-- Analytics / AI feature tables
 -- ==========================================
 analytics.feature_user(user_id BIGINT PK/FK->users.user_id, total_spend BIGINT, total_purchases INT, 
                        total_views INT, active_days INT, category_diversity INT, 
@@ -134,10 +136,10 @@ analytics.feature_time(hour, iso_weekday, total_events, total_views, total_cart_
 
 kpi.rfm_segments(user_id BIGINT PK/FK->users.user_id, recency_days INT, frequency INT, 
                  monetary BIGINT, rfm_code TEXT, rfm_label TEXT)
-                 -- مقادیر rfm_label شامل: 'vip', 'promising', 'at_risk', 'lost', 'regular'
+                 -- rfm_label values include: 'vip', 'promising', 'at_risk', 'lost', 'regular'
 
 kpi.ml_user_clusters(user_id BIGINT PK/FK->users.user_id, cluster_id INT, cluster_name TEXT)
-                     -- مقادیر cluster_name شامل: 'vip_champions', 'night_weekend_buyers', 'active_loyals', 'low_intent_shoppers', 'churned_customers'
+                -- cluster_name values include: 'vip_champions', 'night_weekend_buyers', 'active_loyals', 'low_intent_shoppers', 'churned_customers'
 kpi.global_funnel(view_to_cart_pct, cart_to_purchase_pct, overall_conversion_pct, cart_abandonment_pct)`
 kpi.product_360( conversion_rate, comment_count, star_rating, positive_sentiment_pct, sentiment_score, managerial_action_tag)`
 kpi.brand_diagnostics( total_comments, avg_rating, brand_sentiment_score)`
@@ -145,15 +147,15 @@ kpi.aspect_diagnostics(aspect_name, total_mentions, positive_mentions, negative_
 
 
 -- ==========================================
--- نکته‌ی مهم PostgreSQL: تابع ROUND
+-- Important PostgreSQL note: the ROUND function
 -- ==========================================
--- ROUND(double precision, integer) در PostgreSQL وجود ندارد -- فقط
--- ROUND(numeric, integer) پشتیبانی می‌شود. هر ستونی که DOUBLE PRECISION
--- است (مثل conversion_rate یا هر مقداری که با ::DOUBLE PRECISION ساخته
--- شده) قبل از ROUND کردن با تعداد رقم اعشار، باید اول به numeric کست شود:
+-- ROUND(double precision, integer) does not exist in PostgreSQL -- only
+-- ROUND(numeric, integer) is supported. Any column that is DOUBLE PRECISION
+-- (e.g. conversion_rate, or anything built with ::DOUBLE PRECISION) must
+-- be cast to numeric before rounding to a number of decimal places:
 --     ROUND(some_double_precision_expr::numeric, 4)
--- در غیر این صورت خطای «function round(double precision, integer) does
--- not exist» می‌گیری.
+-- Otherwise you'll get "function round(double precision, integer) does
+-- not exist".
 """
 
 

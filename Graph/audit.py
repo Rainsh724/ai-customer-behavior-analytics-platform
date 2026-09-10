@@ -63,7 +63,7 @@ import logging
 import os
 from typing import Any
 
-from .llm_client import call_llm_json
+from .llm_client import call_llm_json, CHAT_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +175,7 @@ def validate_answer(
     )
 
     try:
-        result = call_llm_json(VALIDATION_SYSTEM_PROMPT, user_prompt)
+        result = call_llm_json(VALIDATION_SYSTEM_PROMPT, user_prompt, model=CHAT_MODEL)
     except Exception as exc:  # noqa: BLE001 - ممیزی نباید کل جواب رو خراب کنه
         logger.warning("validate_answer: LLM call failed: %s", exc)
         # همه‌ی امتیازها رو عمداً None می‌ذاریم (نه ۰ و نه ۱۰۰) تا
@@ -218,7 +218,7 @@ def correct_answer(
     )
 
     try:
-        result = call_llm_json(CORRECTION_SYSTEM_PROMPT, user_prompt)
+        result = call_llm_json(CORRECTION_SYSTEM_PROMPT, user_prompt, model=CHAT_MODEL)
         corrected = result.get("corrected_answer")
         return corrected if corrected and corrected.strip() else final_answer
     except Exception as exc:  # noqa: BLE001
