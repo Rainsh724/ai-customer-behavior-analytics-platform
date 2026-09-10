@@ -148,10 +148,8 @@ TOOL_DEFINITIONS: list[dict] = [
             "description": (
                 "When the user explicitly asks for a chart/graph/"
                 "dashboard/visualization, builds a real chart from the "
-                "database data and returns it in three render-ready "
-                "formats (Chart.js, ECharts, Plotly) -- whichever of "
-                "these three libraries the frontend uses, it's directly "
-                "usable.\n\n"
+                "database data which the frontend renders automatically. "
+                "Do NOT include JSON configs, code blocks, or raw chart objects in your final response -- the frontend renders the chart graphically from tool data. Only provide managerial text analysis.\n\n"
                 "Write a SQL query yourself directly (following exactly "
                 "the same rules and schema as tool_sql) that returns the "
                 "chart's data -- usually one label/category column (for "

@@ -36,3 +36,5 @@ Models/
 .env
 
 rahin_front_ai/node_modules/
+dist/
+rahin_front_ai/dist/

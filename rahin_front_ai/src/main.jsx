@@ -550,10 +550,38 @@ function Assistant() {
           )}
 
           <div className="chat-messages chat-messages-large">
-                    {messages.map((m, i) => (<div key={i} className={`message ${m.role}`}>{m.role === "assistant" ? (<ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>) : (m.text)}</div>))}
-                    {loading && (<div className="message assistant"><span className="typing-dots"> در حال تحلیل اطلاعات<span>.</span><span>.</span><span>.</span></span></div>)}
-          </div>
-          
+            {messages.map((m, i) => {
+              let cleanText = m.text || "";
+              if (m.role === "assistant") {
+                // پاک‌سازی کدهای JSON خام، بلوک‌های کد و توضیحات اضافی رندر چارت از متن پیام
+                cleanText = cleanText
+                  .replace(/```(?:json)?[\s\S]*?"(?:type|datasets|chartjs_config|labels)"[\s\S]*?```/gi, "")
+                  .replace(/\{[\s\r\n]*"type"\s*:\s*"(?:line|bar|pie|scatter|area)"[\s\S]*?\n\s*\}/g, "")
+                  .replace(/تصویر نمودار\s*\([^\)]*JSON[^\)]*\)/gi, "")
+                  .replace(/\(کافی است این JSON را[\s\S]*?رندر شود\.?\)/gi, "")
+                  .replace(/\n{3,}/g, "\n\n")
+                  .trim();
+              }
+
+              return (
+                <div key={i} className={`message ${m.role}`}>
+                  {m.role === "assistant" ? (
+                    <>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{cleanText || m.text}</ReactMarkdown>
+                      {m.chart && <ChatChart chart={m.chart} />}
+                    </>
+                  ) : (
+                    m.text
+                  )}
+                </div>
+              );
+            })}
+            {loading && (
+              <div className="message assistant">
+                <span className="typing-dots"> در حال تحلیل اطلاعات<span>.</span><span>.</span><span>.</span></span>
+              </div>
+            )}
+        </div>
           <div className="composer composer-large">
             <button title="افزودن فایل"><Paperclip /></button>
             <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && ask(input)} placeholder="سؤال مدیریتی خود را بنویسید..." />

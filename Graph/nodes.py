@@ -1214,6 +1214,9 @@ def compact_tool_result(
             "vector",
             "feature_vector",
             "embedding_vector",
+            "chartjs_config",
+            "echarts_option",
+            "plotly_figure",
         }
 
         compact: dict[str, Any] = {}
