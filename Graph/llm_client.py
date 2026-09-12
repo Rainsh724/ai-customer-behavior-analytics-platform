@@ -49,7 +49,7 @@ def get_client() -> OpenAI:
 
 CHAT_MODEL = os.getenv(
     "AGENT_LLM_MODEL",
-    "qwen3.8-flash",
+    "qwen3.7-flash",
 )
 
 # برای تماس‌های JSON کوچیک/طبقه‌بندی (call_llm_json: follow-up classifier،
@@ -58,7 +58,7 @@ CHAT_MODEL = os.getenv(
 # latency کمتر می‌ده.
 CLASSIFIER_LLM_MODEL = os.getenv(
     "CLASSIFIER_LLM_MODEL",
-    "qwen3.8-flash",
+    "qwen3.7-flash",
 )
 
 # باید دقیقاً همون مدلی باشه که comments_embedding باهاش ساخته شده.
@@ -210,6 +210,20 @@ def call_llm_with_tools(
     )
 
     resp = _call_with_rate_limit_retry(lambda: client.chat.completions.create(**kwargs))
+
+    usage = getattr(resp, "usage", None)
+    if usage is not None:
+        cached = 0
+        details = getattr(usage, "prompt_tokens_details", None)
+        if details is not None:
+            cached = getattr(details, "cached_tokens", 0) or 0
+        logger.info(
+            "LLM cache: model=%s prompt_tokens=%s cached_tokens=%s (%.0f%% hit)",
+            CHAT_MODEL,
+            getattr(usage, "prompt_tokens", None),
+            cached,
+            (cached / usage.prompt_tokens * 100) if getattr(usage, "prompt_tokens", 0) else 0,
+        )
 
     return message_to_dict(
         resp.choices[0].message

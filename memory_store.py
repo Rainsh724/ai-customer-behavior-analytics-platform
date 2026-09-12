@@ -86,7 +86,7 @@ class ChatDBConfig:
 
     # Number of most recent conversation turns that remain raw.
     MAX_RAW_TURNS = int(
-        os.getenv("CHAT_MEMORY_MAX_RAW_TURNS", "6")
+        os.getenv("CHAT_MEMORY_MAX_RAW_TURNS", "3")
     )
 
     # PostgreSQL connection timeout in seconds.
