@@ -213,6 +213,7 @@ KNOWLEDGE_BASE_RULE = """
    on your own general knowledge.
 """
  
+
 AGENT_SYSTEM_PROMPT = AGENT_SYSTEM_PROMPT + KNOWLEDGE_BASE_RULE
  
 
@@ -237,6 +238,7 @@ FOLLOW_UP_PHRASES = {
     "اون محصول؟",
     "منظورت همون محصوله؟",
 }
+
 
 
 def _normalize_question(text: str) -> str:
@@ -280,7 +282,6 @@ Rules -- decide conservatively:
 - If the previous answer was empty/irrelevant, or the new question is a
   completely new topic -> false.
 """
-
 
 def _classify_follow_up_llm(question: str, previous_answer: str) -> bool:
     if not previous_answer or not previous_answer.strip():
@@ -878,9 +879,20 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001
         print(f"[هشدار] ensure_eval_schema شکست خورد -- لاگ ارزیابی/calibration کار نخواهد کرد تا رفعش کنی: {exc}")
 
+    # schema/join-key های SQL validator رو زنده از information_schema
+    # می‌خونیم -- یک قدم صریح و جدا در startup، دقیقاً مثل دوتای بالا.
+    # اگه دیتابیس در دسترس نبود، فقط همین قدم fail می‌شه و لاگ می‌گیره؛
+    # sql_validator با fallback دستیِ داخل production_validator.py کار
+    # می‌کنه (فقط باید دستی sync بمونه تا وقتی این وصل بشه).
+    try:
+        from Graph.sql_agent import refresh_sql_validator_from_db
+        refresh_sql_validator_from_db()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[هشدار] refresh_sql_validator_from_db شکست خورد -- validator با schema دستیِ fallback کار می‌کنه: {exc}")
+
     result = run(
         "کدام محصولات بیشترین پتانسیل افزایش فروش را دارند ولی الان کمتر از ظرفیتشان فروش می‌روند؟",
-        chat_id="test-top-selling-product_9"
+        chat_id="test-top-selling-product_0"
     )
 
     print("\nFINAL ANSWER:")

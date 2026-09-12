@@ -43,6 +43,21 @@ logger = logging.getLogger(__name__)
 # ImportError بده و از کار بیفته -- فقط اعتبارسنجی regex-based داخلی
 # (پایین همین فایل) به‌عنوان fallback فعال می‌شه.
 # ============================================================
+# ============================================================
+# اعتبارسنج SQL -- ترجیحاً production_validator (پیشرفته‌تر)، ولی اگه
+# در دسترس نبود (مثلاً این فایل جابه‌جا/گم شده)، کل برنامه نباید
+# ImportError بده و از کار بیفته -- فقط اعتبارسنجی regex-based داخلی
+# (پایین همین فایل) به‌عنوان fallback فعال می‌شه.
+#
+# نکته‌ی مهم: این‌جا -- در سطح ماژول، یعنی همون لحظه‌ای که کسی
+# `from .sql_agent import ...` می‌زنه -- عمداً هیچ اتصال دیتابیسی برقرار
+# نمی‌شه. sql_validator همیشه با fallback دستیِ سریع و بدون I/O ساخته
+# می‌شه، دقیقاً مثل قبل. خوندن زنده‌ی schema از information_schema یک
+# قدم جدا و صریحه: refresh_sql_validator_from_db() را از main.py، در
+# یک نقطه‌ی کنترل‌شده‌ی startup (نه در import هیچ ماژولی) صدا بزنید. این
+# طوری اگه دیتابیس یک لحظه در دسترس نبود، فقط همون یک قدم fail می‌شه و
+# لاگ می‌گیره -- نه این‌که کل زنجیره‌ی import برنامه رو غیرقابل‌پیش‌بینی کنه.
+# ============================================================
 try:
     sql_validator = ProductionSQLValidator(dialect="postgres")
 except ImportError:
@@ -52,6 +67,26 @@ except ImportError:
         "کامل‌تر، production_validator.py رو در PYTHONPATH قرار بدید."
     )
     sql_validator = None
+
+
+def refresh_sql_validator_from_db() -> None:
+    """
+    این رو صریحاً از main.py (بعد از این‌که لاگینگ و بقیه‌ی برنامه ست
+    شدن -- مثلاً همون‌جایی که get_graph() صدا زده می‌شه) صدا بزنید، نه از
+    داخل هیچ import ای. schema/join-key ها رو زنده از
+    information_schema می‌خونه و جایگزین sql_validator فعلی می‌کنه.
+
+    اگه دیتابیس در دسترس نبود، Exception بالا می‌ده و sql_validator قبلی
+    (fallback دستیِ داخل production_validator.py) دست‌نخورده باقی می‌مونه --
+    caller باید این رو با try/except بگیره و لاگ کنه، نه این‌که بذاره کل
+    برنامه بترکه.
+    """
+    global sql_validator
+    from .db import get_conn
+
+    with get_conn() as conn:
+        sql_validator = ProductionSQLValidator.from_database(conn, dialect="postgres")
+    logger.info("sql_validator: schema از information_schema بازخوانی شد.")
 
 # ============================================================
 # SCHEMA CONTEXT -- دقیقاً همون جدول/ستون‌هایی که در
@@ -141,8 +176,12 @@ kpi.rfm_segments(user_id BIGINT PK/FK->users.user_id, recency_days INT, frequenc
 kpi.ml_user_clusters(user_id BIGINT PK/FK->users.user_id, cluster_id INT, cluster_name TEXT)
                 -- cluster_name values include: 'vip_champions', 'night_weekend_buyers', 'active_loyals', 'low_intent_shoppers', 'churned_customers'
 kpi.global_funnel(view_to_cart_pct, cart_to_purchase_pct, overall_conversion_pct, cart_abandonment_pct)`
-kpi.product_360( conversion_rate, comment_count, star_rating, positive_sentiment_pct, sentiment_score, managerial_action_tag)`
-kpi.brand_diagnostics( total_comments, avg_rating, brand_sentiment_score)`
+kpi.product_360(product_id BIGINT PK/FK->products.id, title_fa, price, total_views, total_purchases, total_revenue, conversion_rate, comment_count, star_rating, positive_sentiment_pct, sentiment_score, managerial_action_tag)
+    -- One-stop view for a single product's full picture (sales +
+    -- sentiment + a pre-computed managerial tag). Prefer this over
+    -- manually joining feature_product + products +
+    -- feature_product_sentiment yourself.
+kpi.brand_diagnostics(brand_id INT PK/FK->brands.brand_id, brand_name, total_views, total_purchases, total_comments, avg_rating, brand_sentiment_score)
 kpi.aspect_diagnostics(aspect_name, total_mentions, positive_mentions, negative_mentions, negative_impact_pct, aspect_status)`
 
 
