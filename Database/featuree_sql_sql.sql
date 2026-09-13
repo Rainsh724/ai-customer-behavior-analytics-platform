@@ -74,76 +74,88 @@ ANALYZE temp_user_base;
 CREATE UNLOGGED TABLE analytics.feature_user AS
 WITH event_stats AS (
     SELECT
-        user_id,
+        t.user_id,
         COUNT(*) AS total_events,
-        COUNT(DISTINCT session_id) AS total_sessions,
-        COUNT(DISTINCT DATE(timestamp)) AS active_days,
-        SUM(is_view) AS total_views,
-        SUM(is_cart) AS total_cart_adds,
-        SUM(is_remove) AS total_removes,
-        SUM(is_purchase) AS total_purchases,
-        COUNT(DISTINCT product_id) FILTER (WHERE is_view = 1) AS unique_products_viewed,
-        COUNT(DISTINCT product_id) FILTER (WHERE is_purchase = 1) AS unique_products_purchased,
-        COUNT(DISTINCT city_id) AS cities_visited,
-        AVG(is_weekend)::DOUBLE PRECISION AS weekend_activity_ratio,
-        AVG(CASE WHEN hour >= 6 AND hour < 12 THEN 1.0 ELSE 0.0 END) AS morning_activity_ratio,
-        AVG(CASE WHEN hour >= 12 AND hour < 18 THEN 1.0 ELSE 0.0 END) AS afternoon_activity_ratio,
-        AVG(CASE WHEN hour >= 18 AND hour < 24 THEN 1.0 ELSE 0.0 END) AS evening_activity_ratio,
-        AVG(CASE WHEN hour < 6 THEN 1.0 ELSE 0.0 END) AS night_activity_ratio
-    FROM temp_user_base
-    GROUP BY user_id
+        COUNT(DISTINCT t.session_id) AS total_sessions,
+        COUNT(DISTINCT DATE(t.timestamp)) AS active_days,
+        MIN(t.timestamp) AS first_activity_at,
+        MAX(t.timestamp) AS last_activity_at,
+        SUM(t.is_view) AS total_views,
+        SUM(t.is_cart) AS total_cart_adds,
+        SUM(t.is_remove) AS total_removes,
+        SUM(t.is_purchase) AS total_purchases,
+        COUNT(DISTINCT t.product_id) FILTER (WHERE t.is_view = 1) AS unique_products_viewed,
+        COUNT(DISTINCT t.product_id) FILTER (WHERE t.is_purchase = 1) AS unique_products_purchased,
+        COUNT(DISTINCT t.city_id) AS cities_visited,
+        SUM(t.is_weekend)::DOUBLE PRECISION / NULLIF(COUNT(*), 0) AS weekend_activity_ratio,
+        SUM(CASE WHEN t.hour >= 6 AND t.hour < 12 THEN 1 ELSE 0 END)::DOUBLE PRECISION / NULLIF(COUNT(*), 0) AS morning_activity_ratio,
+        SUM(CASE WHEN t.hour >= 12 AND t.hour < 18 THEN 1 ELSE 0 END)::DOUBLE PRECISION / NULLIF(COUNT(*), 0) AS afternoon_activity_ratio,
+        SUM(CASE WHEN t.hour >= 18 AND t.hour < 24 THEN 1 ELSE 0 END)::DOUBLE PRECISION / NULLIF(COUNT(*), 0) AS evening_activity_ratio,
+        SUM(CASE WHEN t.hour < 6 THEN 1 ELSE 0 END)::DOUBLE PRECISION / NULLIF(COUNT(*), 0) AS night_activity_ratio
+    FROM temp_user_base t
+    GROUP BY t.user_id
 ),
 session_stats AS (
     SELECT
-        user_id,
+        x.user_id,
         AVG(session_events)::DOUBLE PRECISION AS avg_session_events,
         MAX(session_events) AS max_session_events,
         AVG(session_duration_minutes)::DOUBLE PRECISION AS avg_session_duration_minutes,
-        MAX(session_duration_minutes)::DOUBLE PRECISION AS max_session_duration_minutes
+        MAX(session_duration_minutes) AS max_session_duration_minutes
     FROM (
         SELECT
-            user_id,
-            session_id,
+            t.session_id,
+            t.user_id,
             COUNT(*) AS session_events,
-            EXTRACT(EPOCH FROM (MAX(timestamp) - MIN(timestamp))) / 60.0 AS session_duration_minutes
-        FROM temp_user_base
-        GROUP BY user_id, session_id
+            EXTRACT(EPOCH FROM (MAX(t.timestamp) - MIN(t.timestamp))) / 60.0 AS session_duration_minutes
+        FROM temp_user_base t
+        GROUP BY t.session_id, t.user_id
     ) x
-    GROUP BY user_id
+    GROUP BY x.user_id
 ),
 purchase_stats AS (
     SELECT
-        b.user_id,
+        t.user_id,
+        MIN(t.timestamp) AS first_purchase_at,
+        MAX(t.timestamp) AS last_purchase_at,
         COUNT(*) AS purchase_frequency,
-        COUNT(DISTINCT DATE(b.timestamp)) AS purchase_days,
+        COUNT(DISTINCT DATE(t.timestamp)) AS purchase_days,
         SUM(p.price)::DOUBLE PRECISION AS total_spend,
-        AVG(p.price)::DOUBLE PRECISION AS avg_purchase_value,
+        AVG(p.price)::DOUBLE PRECISION AS avg_order_value,
         MIN(p.price) AS min_purchase_price,
         MAX(p.price) AS max_purchase_price,
         COUNT(DISTINCT p.brand_id) AS brand_diversity,
         COUNT(DISTINCT p.category_id) AS category_diversity
-    FROM temp_user_base b
-    INNER JOIN public.products p ON b.product_id = p.id
-    WHERE b.is_purchase = 1
-    GROUP BY b.user_id
+    FROM temp_user_base t
+    INNER JOIN public.products p ON t.product_id = p.id
+    WHERE t.is_purchase = 1
+    GROUP BY t.user_id
 ),
 time_pref AS (
     SELECT
-        user_id,
-        MODE() WITHIN GROUP (ORDER BY hour) AS preferred_hour,
-        MODE() WITHIN GROUP (ORDER BY weekday) AS preferred_weekday
-    FROM temp_user_base
-    GROUP BY user_id
+        t.user_id,
+        MODE() WITHIN GROUP (ORDER BY t.hour) AS preferred_hour,
+        MODE() WITHIN GROUP (ORDER BY t.weekday) AS preferred_weekday
+    FROM temp_user_base t
+    GROUP BY t.user_id
 )
 SELECT
     e.user_id,
     e.total_events,
     e.total_sessions,
     e.active_days,
+    e.first_activity_at,
+    e.last_activity_at,
+    GREATEST(DATE(e.last_activity_at) - DATE(e.first_activity_at), 0) AS lifetime_days,
     e.total_views,
     e.total_cart_adds,
     e.total_removes,
     e.total_purchases,
+    e.total_cart_adds::DOUBLE PRECISION / NULLIF(e.total_views, 0) AS view_to_cart_rate,
+    e.total_purchases::DOUBLE PRECISION / NULLIF(e.total_cart_adds, 0) AS cart_to_purchase_rate,
+    e.total_purchases::DOUBLE PRECISION / NULLIF(e.total_views, 0) AS conversion_rate,
+    GREATEST(e.total_cart_adds - e.total_purchases, 0)::DOUBLE PRECISION / NULLIF(e.total_cart_adds, 0) AS cart_abandonment_rate,
+    e.total_removes::DOUBLE PRECISION / NULLIF(e.total_cart_adds, 0) AS remove_rate,
     s.avg_session_events,
     s.max_session_events,
     s.avg_session_duration_minutes,
@@ -158,14 +170,22 @@ SELECT
     e.unique_products_viewed,
     e.unique_products_purchased,
     e.cities_visited,
+    p.first_purchase_at,
+    p.last_purchase_at,
     COALESCE(p.total_spend, 0) AS total_spend,
-    COALESCE(p.avg_purchase_value, 0) AS avg_purchase_value,
+    COALESCE(p.avg_order_value, 0) AS avg_order_value,
     COALESCE(p.min_purchase_price, 0) AS min_purchase_price,
     COALESCE(p.max_purchase_price, 0) AS max_purchase_price,
     COALESCE(p.purchase_frequency, 0) AS purchase_frequency,
     COALESCE(p.purchase_days, 0) AS purchase_days,
     COALESCE(p.brand_diversity, 0) AS brand_diversity,
-    COALESCE(p.category_diversity, 0) AS category_diversity
+    COALESCE(p.category_diversity, 0) AS category_diversity,
+    CASE 
+        WHEN p.last_purchase_at IS NOT NULL THEN CURRENT_DATE - DATE(p.last_purchase_at) 
+        ELSE NULL 
+    END AS recency_days,
+    COALESCE(p.purchase_frequency, 0) AS frequency,
+    COALESCE(p.total_spend, 0) AS monetary
 FROM event_stats e
 LEFT JOIN session_stats s ON e.user_id = s.user_id
 LEFT JOIN purchase_stats p ON e.user_id = p.user_id

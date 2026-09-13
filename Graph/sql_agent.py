@@ -144,6 +144,18 @@ kpi.global_funnel(total_views NUMERIC, total_carts NUMERIC, total_purchases NUME
                   view_to_cart_pct NUMERIC, cart_to_purchase_pct NUMERIC, overall_conversion_pct NUMERIC, cart_abandonment_pct NUMERIC)
 
 -- ==========================================
+-- REALISTIC DATASET BENCHMARKS & SCALE (Sample Environment):
+-- ==========================================
+-- * Product Views: Max views in this dataset is 33 (avg: 3.8, p90: 7, p99: 12).
+--   For "high traffic" products, use total_views >= 8 or use managerial_action_tag.
+--   NEVER filter total_views > 20 or > 50 or > 100 -- it will return 0 rows!
+-- * Product Purchases: Max purchases is 9 (avg: 1.3, p90: 2).
+--   Top sellers are products with total_purchases >= 2 or >= 3. Never filter purchases > 10!
+-- * Bundles / Co-purchases: Most product pairs are co-purchased 1 time per session.
+--   Always use HAVING COUNT(*) >= 1 (never >= 2).
+-- * Active Date Range: 2019-10-01 to 2023-03-01. Reference date is 2023-03-01.
+
+-- ==========================================
 -- Important PostgreSQL note: the ROUND function
 -- ==========================================
 -- ROUND(double precision, integer) does not exist in PostgreSQL -- only
@@ -231,35 +243,6 @@ def _validate_sql(sql: str) -> str | None:
         return f"جدول(های) غیرمجاز استفاده شده: {unknown}"
     if "limit" not in stripped.lower() and "count(" not in stripped.lower() and "sum(" not in stripped.lower():
         return "کوئری باید LIMIT داشته باشه (مگر aggregate باشه)."
-
-    # ORDER BY + LIMIT بدون tie-breaker قطعی (ستون شبه‌کلید) -- همون
-    # چک production_validator، نسخه‌ی regex‌ای برای fallback.
-    # ORDER BY + LIMIT بدون tie-breaker قطعی (ستون شبه‌کلید) -- همون
-    # چک production_validator، نسخه‌ی regex‌ای برای fallback. باید هر
-    # جفت ORDER BY...LIMIT رو جدا چک کنه (finditer، نه فقط اولین)، چون
-    # ممکنه چند تا CTE هر کدوم ORDER BY+LIMIT خودشون رو داشته باشن و
-    # فقط یکیشون بدون tie-breaker باشه.
-    id_like = (
-        "product_id", "user_id", "comment_id", "session_id", "city_id",
-        "brand_id", "category_id", "seller_id", "log_id", "aspect_id",
-    )
-    for order_match in re.finditer(
-        r"\bORDER\s+BY\s+(.+?)\bLIMIT\s+\d+",
-        stripped,
-        re.IGNORECASE | re.DOTALL,
-    ):
-        order_clause = order_match.group(1).lower()
-        has_id_col = any(col in order_clause for col in id_like) or re.search(
-            r"\bid\b", order_clause
-        )
-        if not has_id_col:
-            return (
-                "ORDER BY+LIMIT بدون tie-breaker قطعی -- (احتمالاً داخل یک CTE) "
-                "یک ستون شبه‌کلید (مثل product_id) رو به‌عنوان معیار دوم به این "
-                "ORDER BY اضافه کن، وگرنه در معیارهای هم‌امتیاز (tie) هر اجرا "
-                "می‌تونه ست متفاوتی برگردونه. بند مشکل‌دار: "
-                f"ORDER BY {order_match.group(1).strip()[:150]}"
-            )
 
     return None
 

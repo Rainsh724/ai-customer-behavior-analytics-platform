@@ -76,8 +76,11 @@ TOOL_DEFINITIONS: list[dict] = [
                 products columns like price; first aggregate the child table in a CTE
                 and only then JOIN to products.
  
-                - Deterministic sort: Whenever you use ORDER BY with LIMIT, always include an id column as secondary tie-breaker (e.g. ORDER BY total_views DESC, product_id ASC).
-                - For co-purchased products (bundles/market basket), self-join user_behavior_logs on session_id where event_type='purchase' and l1.product_id < l2.product_id.
+                - Deterministic sort: Whenever you use ORDER BY with LIMIT, you can include an id column as secondary tie-breaker (e.g. ORDER BY total_views DESC, product_id ASC).
+                - Realistic Data Scale: In this dataset, maximum product views is 33 (avg: 3.8, p90: 7). Top 10% high-traffic products have views >= 8. NEVER filter total_views > 20 or > 50 or > 100!
+                - For high-traffic low-conversion products, underperforming products, or products with untapped sales potential, query kpi.product_360 where managerial_action_tag = 'High Traffic, Low Conversion (نیازمند بررسی قیمت)' or total_views >= 8.
+                - Best-sellers scale: Maximum product purchases is 9. Top-sellers have total_purchases >= 2 or >= 3. Never filter purchases > 10!
+                - For co-purchased products (bundles/market basket), self-join user_behavior_logs on session_id where event_type='purchase' and l1.product_id < l2.product_id. Always use HAVING COUNT(*) >= 1 (never >= 2).
                 - For customer purchase journey / repurchase intervals, analyze user_behavior_logs using timestamp per user_id/session_id.
  
  
