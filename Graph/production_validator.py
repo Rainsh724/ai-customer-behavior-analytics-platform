@@ -93,11 +93,10 @@ class ProductionSQLValidator:
         ("public.users", "analytics.feature_user_product"): {("user_id", "user_id")},
         ("public.users", "analytics.feature_user_category"): {("user_id", "user_id")},
         ("public.users", "kpi.user_segments"): {("user_id", "user_id")},
-        ("public.users", "kpi.rfm_segments"): {("user_id", "user_id")},
         ("public.users", "kpi.ml_user_clusters"): {("user_id", "user_id")},
-        ("analytics.feature_user", "kpi.rfm_segments"): {("user_id", "user_id")},
+        ("analytics.feature_user", "kpi.user_segments"): {("user_id", "user_id")},
         ("analytics.feature_user", "kpi.ml_user_clusters"): {("user_id", "user_id")},
-        ("kpi.rfm_segments", "kpi.ml_user_clusters"): {("user_id", "user_id")},
+        ("kpi.user_segments", "kpi.ml_user_clusters"): {("user_id", "user_id")},
 
         # -- User<->Product bridge tables --
         ("public.products", "analytics.feature_user_product"): {("id", "product_id")},
@@ -121,7 +120,7 @@ class ProductionSQLValidator:
         },
         "analytics": {
             "feature_behavior": ["log_id", "hour", "day", "month", "weekday", "is_weekend", "is_view", "is_cart", "is_remove", "is_purchase"],
-            "feature_user": ["user_id", "total_events", "total_sessions", "active_days", "total_views", "total_cart_adds", "total_removes", "total_purchases", "avg_session_events", "max_session_events", "avg_session_duration_minutes", "max_session_duration_minutes", "weekend_activity_ratio", "morning_activity_ratio", "afternoon_activity_ratio", "evening_activity_ratio", "night_activity_ratio", "preferred_hour", "preferred_weekday", "unique_products_viewed", "unique_products_purchased", "cities_visited", "total_spend", "avg_purchase_value", "min_purchase_price", "max_purchase_price", "purchase_frequency", "purchase_days", "brand_diversity", "category_diversity"],
+            "feature_user": ["user_id", "total_events", "total_sessions", "active_days", "first_activity_at", "last_activity_at", "lifetime_days", "total_views", "total_cart_adds", "total_removes", "total_purchases", "view_to_cart_rate", "cart_to_purchase_rate", "conversion_rate", "cart_abandonment_rate", "remove_rate", "avg_session_events", "max_session_events", "avg_session_duration_minutes", "max_session_duration_minutes", "weekend_activity_ratio", "morning_activity_ratio", "afternoon_activity_ratio", "evening_activity_ratio", "night_activity_ratio", "preferred_hour", "preferred_weekday", "unique_products_viewed", "unique_products_purchased", "cities_visited", "first_purchase_at", "last_purchase_at", "total_spend", "avg_order_value", "min_purchase_price", "max_purchase_price", "purchase_frequency", "purchase_days", "brand_diversity", "category_diversity", "recency_days", "frequency", "monetary"],
             "feature_product": ["product_id", "total_events", "total_views", "total_cart_adds", "total_removes", "total_purchases", "unique_viewers", "unique_carters", "unique_buyers", "total_sessions", "price_drop_ratio"],
             "feature_city": ["city_id", "total_users", "total_sessions", "total_events", "total_views", "total_cart_adds", "total_purchases", "total_removes", "unique_products_viewed", "unique_products_purchased"],
             "feature_category": ["category_id", "total_events", "total_views", "total_cart_adds", "total_purchases", "total_removes", "unique_viewers", "unique_buyers", "avg_product_price"],
@@ -138,8 +137,7 @@ class ProductionSQLValidator:
         "kpi": {
             "product_360": ["product_id", "title_fa", "price", "total_views", "total_purchases", "total_revenue", "conversion_rate", "comment_count", "star_rating", "positive_sentiment_pct", "sentiment_score", "managerial_action_tag"],
             "global_funnel": ["total_views", "total_carts", "total_purchases", "total_removes", "view_to_cart_pct", "cart_to_purchase_pct", "overall_conversion_pct", "cart_abandonment_pct"],
-            "user_segments": ["user_id", "active_days", "total_views", "total_purchases", "total_spend", "user_segment", "user_conversion_pct"],
-            "rfm_segments": ["user_id", "recency_days", "frequency", "monetary", "rfm_code", "rfm_label"],
+            "user_segments": ["user_id", "active_days", "total_views", "total_purchases", "total_spend", "avg_order_value", "recency_days", "user_segment", "user_conversion_pct"],
             "ml_user_clusters": ["user_id", "cluster_id", "cluster_name"],
             "brand_diagnostics": ["brand_id", "brand_name", "total_views", "total_purchases", "total_comments", "avg_rating", "brand_sentiment_score"],
             "aspect_diagnostics": ["aspect_name", "total_mentions", "positive_mentions", "negative_mentions", "negative_impact_pct", "aspect_status"]
@@ -207,7 +205,7 @@ class ProductionSQLValidator:
             "public.products": {"price", "min_price_last_month", "rate", "rate_cnt"},
             "public.comments": {"likes", "dislikes", "rate"},
             "analytics.feature_product": {"total_events", "total_views", "total_purchases", "unique_viewers", "unique_buyers"},
-            "analytics.feature_user": {"total_spend", "avg_purchase_value", "total_events", "total_purchases"},
+            "analytics.feature_user": {"total_spend", "avg_order_value", "total_events", "total_purchases"},
             "analytics.feature_category": {"total_events", "total_views", "total_purchases", "avg_product_price"},
             "analytics.feature_brand": {"total_events", "total_views", "total_purchases"},
             "analytics.feature_city": {"total_users", "total_sessions", "total_events", "total_views", "total_purchases"},

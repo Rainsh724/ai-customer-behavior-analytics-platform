@@ -113,12 +113,13 @@ kpi.ml_user_clusters(user_id BIGINT PK/FK->users.user_id, cluster_id INT, cluste
   --   'low_intent_shoppers' (بازدیدکنندگان با قصد خرید پایین / چرخ‌زنندگان)
   --   'churned_customers' (مشتریان ریزشی که مدت‌هاست غیرفعال‌اند)
 
-kpi.rfm_segments(user_id BIGINT PK/FK->users.user_id, recency_days NUMERIC, frequency BIGINT, 
-                 monetary DOUBLE PRECISION, rfm_code TEXT, rfm_label TEXT)
-                 -- rfm_label values: 'vip', 'promising', 'at_risk', 'lost', 'regular'
+kpi.user_segments(user_id BIGINT PK/FK->users.user_id, active_days INT, total_views INT, 
+                  total_purchases INT, total_spend BIGINT, avg_order_value BIGINT, 
+                  recency_days INT, user_segment TEXT, user_conversion_pct NUMERIC)
+  -- user_segment values: 'VIP Customer', 'Returning Customer', 'One-Time Buyer', 'Window Shopper (فقط بازدیدکننده)', 'Low Engagement'
 
 analytics.feature_user(user_id BIGINT PK/FK->users.user_id, total_spend BIGINT, total_purchases INT, 
-                       total_views INT, active_days INT, avg_purchase_value BIGINT,
+                       total_views INT, active_days INT, avg_order_value BIGINT, recency_days INT,
                        night_activity_ratio DOUBLE PRECISION, weekend_activity_ratio DOUBLE PRECISION, category_diversity INT)
 
 -- Product, Brand & Funnel 360 Aggregates:
@@ -153,6 +154,7 @@ kpi.global_funnel(total_views NUMERIC, total_carts NUMERIC, total_purchases NUME
 --   Top sellers are products with total_purchases >= 2 or >= 3. Never filter purchases > 10!
 -- * Bundles / Co-purchases: Most product pairs are co-purchased 1 time per session.
 --   Always use HAVING COUNT(*) >= 1 (never >= 2).
+-- * Customer Churn & Segmentation: Query kpi.ml_user_clusters where cluster_name = 'churned_customers', or kpi.user_segments.
 -- * Active Date Range: 2019-10-01 to 2023-03-01. Reference date is 2023-03-01.
 
 -- ==========================================
@@ -184,7 +186,6 @@ ALLOWED_TABLES = {
 
     # kpi schema
     "kpi",
-    "kpi.rfm_segments",
     "kpi.ml_user_clusters",
     "kpi.product_360",
     "kpi.brand_diagnostics",
@@ -194,7 +195,6 @@ ALLOWED_TABLES = {
 
     # unqualified table names
     "feature_user",
-    "rfm_segments",
     "ml_user_clusters",
     "product_360",
     "brand_diagnostics",

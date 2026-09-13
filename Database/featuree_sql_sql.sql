@@ -28,7 +28,7 @@ DROP TABLE IF EXISTS analytics.feature_user CASCADE;
 -- 2. EVENT / BEHAVIOR FEATURES
 -- ============================================================
 
-CREATE UNLOGGED TABLE analytics.feature_behavior AS
+CREATE TABLE analytics.feature_behavior AS
 SELECT
     b.log_id,
     EXTRACT(HOUR FROM b.timestamp)::SMALLINT AS hour,
@@ -71,7 +71,7 @@ WHERE s.user_id IS NOT NULL;
 CREATE INDEX idx_temp_user_base_user ON temp_user_base(user_id);
 ANALYZE temp_user_base;
 
-CREATE UNLOGGED TABLE analytics.feature_user AS
+CREATE TABLE analytics.feature_user AS
 WITH event_stats AS (
     SELECT
         t.user_id,
@@ -197,7 +197,7 @@ CREATE UNIQUE INDEX idx_feature_user ON analytics.feature_user(user_id);
 -- 4. PRODUCT FEATURES
 -- ============================================================
 
-CREATE UNLOGGED TABLE analytics.feature_product AS
+CREATE TABLE analytics.feature_product AS
 WITH behavior AS (
     SELECT
         l.product_id,
@@ -236,7 +236,7 @@ CREATE UNIQUE INDEX idx_feature_product ON analytics.feature_product(product_id)
 -- 5. CITY FEATURES
 -- ============================================================
 
-CREATE UNLOGGED TABLE analytics.feature_city AS
+CREATE TABLE analytics.feature_city AS
 SELECT
     s.city_id,
     COUNT(DISTINCT s.user_id) AS total_users,
@@ -260,7 +260,7 @@ CREATE UNIQUE INDEX idx_feature_city ON analytics.feature_city(city_id);
 -- 6. CATEGORY FEATURES
 -- ============================================================
 
-CREATE UNLOGGED TABLE analytics.feature_category AS
+CREATE TABLE analytics.feature_category AS
 SELECT
     p.category_id,
     COUNT(*) AS total_events,
@@ -284,7 +284,7 @@ CREATE UNIQUE INDEX idx_feature_category ON analytics.feature_category(category_
 -- 7. BRAND FEATURES
 -- ============================================================
 
-CREATE UNLOGGED TABLE analytics.feature_brand AS
+CREATE TABLE analytics.feature_brand AS
 SELECT
     p.brand_id,
     COUNT(*) AS total_events,
@@ -307,7 +307,7 @@ CREATE UNIQUE INDEX idx_feature_brand ON analytics.feature_brand(brand_id);
 -- 8. USER × PRODUCT FEATURES
 -- ============================================================
 
-CREATE UNLOGGED TABLE analytics.feature_user_product AS
+CREATE TABLE analytics.feature_user_product AS
 SELECT
     s.user_id,
     l.product_id,
@@ -330,7 +330,7 @@ CREATE UNIQUE INDEX idx_feature_user_product ON analytics.feature_user_product(u
 -- 9. USER × CATEGORY FEATURES
 -- ============================================================
 
-CREATE UNLOGGED TABLE analytics.feature_user_category AS
+CREATE TABLE analytics.feature_user_category AS
 WITH base AS (
     SELECT
         s.user_id,
@@ -378,7 +378,7 @@ CREATE UNIQUE INDEX idx_feature_user_category ON analytics.feature_user_category
 -- 10. PRODUCT SENTIMENT FEATURES
 -- ============================================================
 
-CREATE UNLOGGED TABLE analytics.feature_product_sentiment AS
+CREATE TABLE analytics.feature_product_sentiment AS
 WITH comment_stats AS (
     SELECT
         product_id,
@@ -431,7 +431,7 @@ CREATE UNIQUE INDEX idx_feature_product_sentiment ON analytics.feature_product_s
 -- 11. PRODUCT × ASPECT FEATURES
 -- ============================================================
 
-CREATE UNLOGGED TABLE analytics.feature_product_aspect AS
+CREATE TABLE analytics.feature_product_aspect AS
 SELECT
     c.product_id,
     ca.term,
@@ -453,7 +453,7 @@ CREATE UNIQUE INDEX idx_feature_product_aspect ON analytics.feature_product_aspe
 -- 12. BRAND SENTIMENT FEATURES
 -- ============================================================
 
-CREATE UNLOGGED TABLE analytics.feature_brand_sentiment AS
+CREATE TABLE analytics.feature_brand_sentiment AS
 WITH comment_stats AS (
     SELECT
         p.brand_id,
@@ -498,7 +498,7 @@ CREATE UNIQUE INDEX idx_feature_brand_sentiment ON analytics.feature_brand_senti
 -- 13. CATEGORY SENTIMENT FEATURES
 -- ============================================================
 
-CREATE UNLOGGED TABLE analytics.feature_category_sentiment AS
+CREATE TABLE analytics.feature_category_sentiment AS
 WITH comment_stats AS (
     SELECT
         p.category_id,
@@ -543,7 +543,7 @@ CREATE UNIQUE INDEX idx_feature_category_sentiment ON analytics.feature_category
 -- 14. GLOBAL ASPECT FEATURES
 -- ============================================================
 
-CREATE UNLOGGED TABLE analytics.feature_aspect AS
+CREATE TABLE analytics.feature_aspect AS
 SELECT
     ca.term,
     COUNT(*) AS total_mentions,
@@ -563,7 +563,7 @@ CREATE UNIQUE INDEX idx_feature_aspect ON analytics.feature_aspect(term);
 -- 15. TIME FEATURES
 -- ============================================================
 
-CREATE UNLOGGED TABLE analytics.feature_time AS
+CREATE TABLE analytics.feature_time AS
 SELECT
     fb.hour,
     fb.weekday AS iso_weekday,

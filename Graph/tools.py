@@ -82,6 +82,7 @@ TOOL_DEFINITIONS: list[dict] = [
                 - Best-sellers scale: Maximum product purchases is 9. Top-sellers have total_purchases >= 2 or >= 3. Never filter purchases > 10!
                 - For co-purchased products (bundles/market basket), self-join user_behavior_logs on session_id where event_type='purchase' and l1.product_id < l2.product_id. Always use HAVING COUNT(*) >= 1 (never >= 2).
                 - For customer purchase journey / repurchase intervals, analyze user_behavior_logs using timestamp per user_id/session_id.
+                - For customer churn, at-risk customers, or segmentation, query kpi.ml_user_clusters (where cluster_name = 'churned_customers') or kpi.user_segments.
  
  
                 Rules for working with large tables:
