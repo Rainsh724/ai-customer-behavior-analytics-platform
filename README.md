@@ -4,8 +4,6 @@
 
 <div align="center">
 
-![Rahin Analytics](rahin_front_ai/public/assets/logo-mark.png)
-
 **Transform Customer Data Into Actionable Intelligence**
 
 [![Python](https://img.shields.io/badge/Python-90.2%25-3776ab?logo=python&logoColor=white&style=for-the-badge)](https://python.org)
