@@ -1,6 +1,12 @@
+# <div align="center"><img src="rahin_front_ai/public/assets/logo-mark.png" width="80" alt="Rahin Logo"></div>
+
 # 🎯 AI Customer Behavior Analytics Platform
 
 <div align="center">
+
+![Rahin Analytics](rahin_front_ai/public/assets/logo-mark.png)
+
+**Transform Customer Data Into Actionable Intelligence**
 
 [![Python](https://img.shields.io/badge/Python-90.2%25-3776ab?logo=python&logoColor=white&style=for-the-badge)](https://python.org)
 [![JavaScript](https://img.shields.io/badge/JavaScript-2.3%25-f7df1e?logo=javascript&logoColor=black&style=for-the-badge)](https://javascript.com)
@@ -9,9 +15,7 @@
 
 <br/>
 
-## 🚀 Transform Customer Data Into Actionable Intelligence
-
-**A sophisticated AI-powered analytics platform** combining intelligent agents, semantic search, SQL analytics, and real-time dashboards to unlock deep insights from customer behavior data.
+A sophisticated AI-powered analytics platform combining intelligent agents, semantic search, SQL analytics, and real-time dashboards to unlock deep insights from customer behavior data.
 
 [![GitHub Stars](https://img.shields.io/github/stars/Rainsh724/ai-customer-behavior-analytics-platform?style=social)](https://github.com/Rainsh724/ai-customer-behavior-analytics-platform)
 [![GitHub Forks](https://img.shields.io/github/forks/Rainsh724/ai-customer-behavior-analytics-platform?style=social)](https://github.com/Rainsh724/ai-customer-behavior-analytics-platform)
@@ -600,6 +604,8 @@ ai-customer-behavior-analytics-platform/
 │
 ├── 🎨 Frontend (React)
 │   └── rahin_front_ai/
+│       ├── public/assets/
+│       │   └── logo-mark.png      # Rahin Logo
 │       ├── src/
 │       │   ├── components/
 │       │   ├── pages/
@@ -678,5 +684,8 @@ This project is licensed under the **MIT License**.
 **Made with 💚 by Rahin Analytics Team**
 
 [🔝 Back to Top](#-ai-customer-behavior-analytics-platform)
+
+![Last Updated](https://img.shields.io/badge/Last%20Updated-2025-green?style=flat-square)
+![Maintained](https://img.shields.io/badge/Maintained%3F-Yes-green?style=flat-square)
 
 </div>
