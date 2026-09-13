@@ -182,9 +182,7 @@ def call_llm_with_tools(
         model=CHAT_MODEL,
         temperature=0,
         messages=messages,
-        tool_choice=tool_choice,
     )
-
 
     estimated_input_chars = len(
         json.dumps(
@@ -196,8 +194,9 @@ def call_llm_with_tools(
 
     estimated_input_tokens = estimated_input_chars // 4
 
-    if tool_choice != "none":
+    if tool_choice != "none" and tools:
         kwargs["tools"] = tools
+        kwargs["tool_choice"] = tool_choice
         kwargs["parallel_tool_calls"] = False
 
     logger.info(

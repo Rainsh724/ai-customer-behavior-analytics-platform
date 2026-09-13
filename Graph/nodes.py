@@ -415,18 +415,25 @@ def sub_tools_node(
             tool_message
         )
 
-        tool_trace.append(
-            {
-                "tool": name,
-                "arguments": arguments,
-                "ok": ok,
-                "summary": (
-                    result.get("error")
-                    if not ok
-                    else compact_result
-                ),
+        trace_entry = {
+            "tool": name,
+            "arguments": arguments,
+            "ok": ok,
+            "summary": (
+                result.get("error")
+                if not ok
+                else compact_result
+            ),
+        }
+        if name == "tool_chart" and ok:
+            trace_entry["chart_data"] = {
+                "chart_type": result.get("chart_type"),
+                "title": result.get("title"),
+                "x_field": result.get("x_field"),
+                "y_field": result.get("y_field"),
+                "raw_data": result.get("raw_data"),
             }
-        )
+        tool_trace.append(trace_entry)
 
     messages.extend(tool_messages)
 
@@ -1467,6 +1474,8 @@ def finalize_node(state: GraphState):
     ]
 
     llm_messages = _build_bounded_llm_messages(messages, turn_control_messages)
+    clean_messages = messages[:-1] if _tool_calls_from_message(last_message) else messages
+    llm_messages = _build_bounded_llm_messages(clean_messages, turn_control_messages)
 
     forced_response = call_llm_with_tools(
         llm_messages,

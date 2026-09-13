@@ -76,6 +76,10 @@ TOOL_DEFINITIONS: list[dict] = [
                 products columns like price; first aggregate the child table in a CTE
                 and only then JOIN to products.
  
+                - Deterministic sort: Whenever you use ORDER BY with LIMIT, always include an id column as secondary tie-breaker (e.g. ORDER BY total_views DESC, product_id ASC).
+                - For co-purchased products (bundles/market basket), self-join user_behavior_logs on session_id where event_type='purchase' and l1.product_id < l2.product_id.
+                - For customer purchase journey / repurchase intervals, analyze user_behavior_logs using timestamp per user_id/session_id.
+ 
  
                 Rules for working with large tables:
  

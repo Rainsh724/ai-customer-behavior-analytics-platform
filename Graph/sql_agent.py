@@ -43,21 +43,6 @@ logger = logging.getLogger(__name__)
 # ImportError بده و از کار بیفته -- فقط اعتبارسنجی regex-based داخلی
 # (پایین همین فایل) به‌عنوان fallback فعال می‌شه.
 # ============================================================
-# ============================================================
-# اعتبارسنج SQL -- ترجیحاً production_validator (پیشرفته‌تر)، ولی اگه
-# در دسترس نبود (مثلاً این فایل جابه‌جا/گم شده)، کل برنامه نباید
-# ImportError بده و از کار بیفته -- فقط اعتبارسنجی regex-based داخلی
-# (پایین همین فایل) به‌عنوان fallback فعال می‌شه.
-#
-# نکته‌ی مهم: این‌جا -- در سطح ماژول، یعنی همون لحظه‌ای که کسی
-# `from .sql_agent import ...` می‌زنه -- عمداً هیچ اتصال دیتابیسی برقرار
-# نمی‌شه. sql_validator همیشه با fallback دستیِ سریع و بدون I/O ساخته
-# می‌شه، دقیقاً مثل قبل. خوندن زنده‌ی schema از information_schema یک
-# قدم جدا و صریحه: refresh_sql_validator_from_db() را از main.py، در
-# یک نقطه‌ی کنترل‌شده‌ی startup (نه در import هیچ ماژولی) صدا بزنید. این
-# طوری اگه دیتابیس یک لحظه در دسترس نبود، فقط همون یک قدم fail می‌شه و
-# لاگ می‌گیره -- نه این‌که کل زنجیره‌ی import برنامه رو غیرقابل‌پیش‌بینی کنه.
-# ============================================================
 try:
     sql_validator = ProductionSQLValidator(dialect="postgres")
 except ImportError:
@@ -71,15 +56,8 @@ except ImportError:
 
 def refresh_sql_validator_from_db() -> None:
     """
-    این رو صریحاً از main.py (بعد از این‌که لاگینگ و بقیه‌ی برنامه ست
-    شدن -- مثلاً همون‌جایی که get_graph() صدا زده می‌شه) صدا بزنید، نه از
-    داخل هیچ import ای. schema/join-key ها رو زنده از
-    information_schema می‌خونه و جایگزین sql_validator فعلی می‌کنه.
-
-    اگه دیتابیس در دسترس نبود، Exception بالا می‌ده و sql_validator قبلی
-    (fallback دستیِ داخل production_validator.py) دست‌نخورده باقی می‌مونه --
-    caller باید این رو با try/except بگیره و لاگ کنه، نه این‌که بذاره کل
-    برنامه بترکه.
+    این رو صریحاً از main.py در startup صدا بزنید.
+    schema/join-key ها رو زنده از information_schema می‌خونه و جایگزین sql_validator فعلی می‌کنه.
     """
     global sql_validator
     from .db import get_conn
@@ -87,8 +65,6 @@ def refresh_sql_validator_from_db() -> None:
     with get_conn() as conn:
         sql_validator = ProductionSQLValidator.from_database(conn, dialect="postgres")
     logger.info("sql_validator: schema از information_schema بازخوانی شد.")
-
-# ============================================================
 # SCHEMA CONTEXT -- دقیقاً همون جدول/ستون‌هایی که در
 # lod_data_to_database2.py پروژه‌ی اصلی بهشون INSERT می‌شه.
 #
@@ -98,103 +74,81 @@ def refresh_sql_validator_from_db() -> None:
 # ============================================================
 
 SCHEMA_CONTEXT = """
-Allowed tables (use only these tables and these columns):
+Allowed tables and columns:
 
+-- 1. Core Catalog & Organization:
 products(id BIGINT PK, title_fa TEXT, brand_id INT FK->brands.brand_id,
          category_id INT FK->categories.category_id, seller_id INT FK->sellers.seller_id,
          price BIGINT, min_price_last_month BIGINT, is_fake BOOLEAN,
          rate DOUBLE PRECISION, rate_cnt BIGINT)
-
-brands(brand_id PK, name TEXT)
-categories(category_id PK, category1 TEXT, category2 TEXT, sub_category TEXT)
-sellers(seller_id PK, seller_title TEXT)
-
+brands(brand_id INT PK, name TEXT)
+categories(category_id INT PK, category1 TEXT, category2 TEXT, sub_category TEXT)
+sellers(seller_id INT PK, seller_title TEXT)
+cities(city_id INT PK, name TEXT)
 users(user_id BIGINT PK)
-cities(city_id PK, name TEXT)
-sessions(session_id TEXT PK, user_id FK->users.user_id, city_id FK->cities.city_id)
+sessions(session_id TEXT PK, user_id BIGINT FK->users.user_id, city_id INT FK->cities.city_id)
 
-user_behavior_logs(log_id PK, session_id FK->sessions.session_id,
-                    product_id FK->products.id, event_type TEXT,  -- e.g. 'view','add_to_cart','purchase'
-                    timestamp TIMESTAMPTZ)
+-- 2. Real-time Events & Dynamic Time-windowed Analytics:
+-- USE FOR: Any question asking for dynamic dates/rolling windows (e.g. 'last 7 days', 'last 30 days', trends over time).
+-- NOTE: Each record with event_type='purchase' is 1 purchase event. Total sales volume = COUNT(*).
+user_behavior_logs(log_id BIGINT PK, session_id TEXT FK->sessions.session_id,
+                   product_id BIGINT FK->products.id, event_type TEXT,
+                   timestamp TIMESTAMPTZ)
+                   -- event_type in ('view', 'add_to_cart', 'purchase', 'remove_from_cart')
 
-comments(id BIGINT PK, product_id FK->products.id, is_buyer BOOLEAN,
+-- 3. Customer Reviews & Aspect Sentiment:
+comments(id BIGINT PK, product_id BIGINT FK->products.id, is_buyer BOOLEAN,
          rate DOUBLE PRECISION, recommendation_status TEXT, likes INT, dislikes INT,
-         raw_text_normalized TEXT, created_at TIMESTAMPTZ)
+         created_at TIMESTAMPTZ)
+comment_aspects(aspect_id INT PK, comment_id BIGINT FK->comments.id, term TEXT,
+                sentiment TEXT, negative_pct DOUBLE PRECISION, neutral_pct DOUBLE PRECISION, positive_pct DOUBLE PRECISION)
 
-comments_embedding(id BIGINT PK/FK->comments.id, embedded_comment VECTOR(768))
-                 -- Only for RAG/similarity search; do not use this from tool_sql.
-
-comment_aspects(aspect_id PK, comment_id FK->comments.id, term TEXT,
-                 sentiment TEXT, negative_pct DOUBLE, neutral_pct DOUBLE, positive_pct DOUBLE)
-                            -- Usable for counting/aspect statistics; for *reading the
-                            -- actual text* of reviews and semantic search, that's
-                            -- tool_rag's job, not tool_sql's.
-
-product_negative_feedback_summary(product_id BIGINT PK/FK->products.id,
-                 avg_negative_pct DOUBLE, comment_cnt BIGINT)
-                 -- A pre-computed, product-level summary table. Whenever you
-                 -- need the average negative-feedback percentage
-                 -- (negative_pct) at the product level (not per individual
-                 -- comment), always read from this table -- never JOIN
-                 -- comments with comment_aspects directly to recompute this
-                 -- from scratch; that JOIN is very slow over the full
-                 -- dataset (millions of rows), and this table already has
-                 -- the same result precomputed. Note: this table refreshes
-                 -- periodically, so it may be a few hours/days stale --
-                 -- fine for product-level analysis/reporting.
-
--- ==========================================
--- Analytics / AI feature tables
--- ==========================================
-analytics.feature_user(user_id BIGINT PK/FK->users.user_id, total_spend BIGINT, total_purchases INT, 
-                       total_views INT, active_days INT, category_diversity INT, 
-                       avg_session_duration_minutes DOUBLE PRECISION, 
-                       night_activity_ratio DOUBLE PRECISION, weekend_activity_ratio DOUBLE PRECISION,
-                       total_events,total_sessions , total_cart_adds , total_removes , avg_session_events , max_session_events,
-                       max_session_duration_minutes,morning_activity_ratio , afternoon_activity_ratio , evening_activity_ratio,
-                       preferred_hour, preferred_weekday , unique_products_viewed ,unique_products_purchased,
-                       cities_visited,avg_purchase_value , min_purchase_price , max_purchase_price , purchase_frequency , 
-                       purchase_days , brand_diversity)
-analytics.feature_behavior(log_id, hour, day, month, weekday, is_weekend, is_view, is_cart, is_remove, is_purchase)                       
-analytics.feature_product(product_id, total_events, total_views, total_cart_adds, total_removes, total_purchases,unique_viewers, unique_carters, unique_buyers, total_sessions, price_drop_ratio)
-analytics.feature_city(city_id, total_users, total_sessions, total_events, total_views, total_cart_adds, total_purchases, total_removes, unique_products_viewed, unique_products_purchased)
-analytics.feature_category(category_id, total_events, total_views, total_cart_adds, total_purchases, total_removes, unique_viewers, unique_buyers, avg_product_price)
-analytics.feature_brand(brand_id, total_events, total_views, total_cart_adds, total_purchases, total_removes, unique_viewers, unique_buyers)
-analytics.feature_user_product(user_id, product_id, total_events, view_count, cart_count, remove_count, purchase_count, active_days, session_count)
-analytics.feature_user_category(user_id, category_id, total_events, view_count, cart_count, remove_count, purchase_count, category_spend, view_share, purchase_share, spend_share)
-analytics.feature_product_sentiment(product_id, comment_count, avg_rate, avg_like_ratio, total_likes, total_dislikes, total_aspect_mentions, positive_aspect_mentions, negative_aspect_mentions, neutral_aspect_mentions, avg_positive_pct, avg_negative_pct, avg_neutral_pct, positive_aspect_ratio, negative_aspect_ratio, neutral_aspect_ratio)
-analytics.feature_product_aspect(product_id, term, total_mentions, positive_mentions, negative_mentions, neutral_mentions, avg_negative_pct, avg_neutral_pct, avg_positive_pct)
-analytics.feature_brand_sentiment(brand_id, total_comments, total_aspect_mentions, positive_aspect_mentions, negative_aspect_mentions, neutral_aspect_mentions, avg_comment_rating, total_likes, total_dislikes)
-analytics.feature_category_sentiment(category_id, total_comments, total_aspect_mentions, positive_aspect_mentions, negative_aspect_mentions, neutral_aspect_mentions, avg_comment_rating, total_likes, total_dislikes)
-analytics.feature_aspect(term, total_mentions, positive_mentions, negative_mentions, neutral_mentions, avg_negative_pct, avg_neutral_pct, avg_positive_pct)
-analytics.feature_time(hour, iso_weekday, total_events, total_views, total_cart_adds, total_purchases, total_removes)
-
-kpi.rfm_segments(user_id BIGINT PK/FK->users.user_id, recency_days INT, frequency INT, 
-                 monetary BIGINT, rfm_code TEXT, rfm_label TEXT)
-                 -- rfm_label values include: 'vip', 'promising', 'at_risk', 'lost', 'regular'
-
+-- 4. Pre-computed KPIs & ML Clusters (FAST & HIGH-ACCURACY - Use for general/all-time/segmentation queries):
+-- Customer Personas & Segmentation:
 kpi.ml_user_clusters(user_id BIGINT PK/FK->users.user_id, cluster_id INT, cluster_name TEXT)
-                -- cluster_name values include: 'vip_champions', 'night_weekend_buyers', 'active_loyals', 'low_intent_shoppers', 'churned_customers'
-kpi.global_funnel(view_to_cart_pct, cart_to_purchase_pct, overall_conversion_pct, cart_abandonment_pct)`
-kpi.product_360(product_id BIGINT PK/FK->products.id, title_fa, price, total_views, total_purchases, total_revenue, conversion_rate, comment_count, star_rating, positive_sentiment_pct, sentiment_score, managerial_action_tag)
-    -- One-stop view for a single product's full picture (sales +
-    -- sentiment + a pre-computed managerial tag). Prefer this over
-    -- manually joining feature_product + products +
-    -- feature_product_sentiment yourself.
-kpi.brand_diagnostics(brand_id INT PK/FK->brands.brand_id, brand_name, total_views, total_purchases, total_comments, avg_rating, brand_sentiment_score)
-kpi.aspect_diagnostics(aspect_name, total_mentions, positive_mentions, negative_mentions, negative_impact_pct, aspect_status)`
+  -- cluster_name values:
+  --   'vip_champions' (مشتریان بسیار سودآور و پرخرید / VIP)
+  --   'night_weekend_buyers' (خریداران شب و روزهای تعطیل / تخفیف‌محور)
+  --   'active_loyals' (مشتریان وفادار با خریدهای منظم و فعالیت مداوم)
+  --   'low_intent_shoppers' (بازدیدکنندگان با قصد خرید پایین / چرخ‌زنندگان)
+  --   'churned_customers' (مشتریان ریزشی که مدت‌هاست غیرفعال‌اند)
 
+kpi.rfm_segments(user_id BIGINT PK/FK->users.user_id, recency_days NUMERIC, frequency BIGINT, 
+                 monetary DOUBLE PRECISION, rfm_code TEXT, rfm_label TEXT)
+                 -- rfm_label values: 'vip', 'promising', 'at_risk', 'lost', 'regular'
+
+analytics.feature_user(user_id BIGINT PK/FK->users.user_id, total_spend BIGINT, total_purchases INT, 
+                       total_views INT, active_days INT, avg_purchase_value BIGINT,
+                       night_activity_ratio DOUBLE PRECISION, weekend_activity_ratio DOUBLE PRECISION, category_diversity INT)
+
+-- Product, Brand & Funnel 360 Aggregates:
+product_negative_feedback_summary(product_id BIGINT PK/FK->products.id, avg_negative_pct DOUBLE PRECISION, comment_cnt BIGINT)
+  -- Precomputed product-level average negative feedback. Always use this instead of joining comments with comment_aspects for product-level negative %.
+
+kpi.product_360(product_id BIGINT PK/FK->products.id, title_fa TEXT, price BIGINT, 
+                total_views BIGINT, total_purchases BIGINT, total_revenue BIGINT, 
+                conversion_rate NUMERIC, comment_count BIGINT, star_rating NUMERIC, 
+                positive_sentiment_pct NUMERIC, sentiment_score NUMERIC, managerial_action_tag TEXT)
+  -- managerial_action_tag values: 'Hero Product (قهرمان)', 'High Traffic, Low Conversion (نیازمند بررسی قیمت)', 
+  --                               'High Risk (فروش بالا اما به شدت ناراضی)', 'Needs Reviews (نیازمند کمپین ثبت نظر)', 'Normal'
+
+kpi.brand_diagnostics(brand_id INT PK/FK->brands.brand_id, brand_name TEXT, 
+                      total_views BIGINT, total_purchases BIGINT, total_comments BIGINT, 
+                      avg_rating NUMERIC, brand_sentiment_score NUMERIC)
+
+kpi.aspect_diagnostics(aspect_name TEXT, total_mentions BIGINT, positive_mentions BIGINT, 
+                       negative_mentions BIGINT, negative_impact_pct NUMERIC, aspect_status TEXT)
+  -- aspect_status values: 'Critical Weakness (نقطه ضعف بحرانی)', 'Key Strength (نقطه قوت کلیدی)', 'Neutral'
+
+kpi.global_funnel(total_views NUMERIC, total_carts NUMERIC, total_purchases NUMERIC, total_removes NUMERIC, 
+                  view_to_cart_pct NUMERIC, cart_to_purchase_pct NUMERIC, overall_conversion_pct NUMERIC, cart_abandonment_pct NUMERIC)
 
 -- ==========================================
 -- Important PostgreSQL note: the ROUND function
 -- ==========================================
 -- ROUND(double precision, integer) does not exist in PostgreSQL -- only
 -- ROUND(numeric, integer) is supported. Any column that is DOUBLE PRECISION
--- (e.g. conversion_rate, or anything built with ::DOUBLE PRECISION) must
--- be cast to numeric before rounding to a number of decimal places:
---     ROUND(some_double_precision_expr::numeric, 4)
--- Otherwise you'll get "function round(double precision, integer) does
--- not exist".
+-- must be cast to numeric before rounding: ROUND(expr::numeric, 2)
 """
 
 
@@ -210,7 +164,7 @@ ALLOWED_TABLES = {
     "user_behavior_logs",
     "comments",
     "comment_aspects",
-    "comments_embedding",
+    "product_negative_feedback_summary",
 
     # analytics schema
     "analytics",
@@ -220,11 +174,21 @@ ALLOWED_TABLES = {
     "kpi",
     "kpi.rfm_segments",
     "kpi.ml_user_clusters",
+    "kpi.product_360",
+    "kpi.brand_diagnostics",
+    "kpi.aspect_diagnostics",
+    "kpi.global_funnel",
+    "kpi.user_segments",
 
     # unqualified table names
     "feature_user",
     "rfm_segments",
     "ml_user_clusters",
+    "product_360",
+    "brand_diagnostics",
+    "aspect_diagnostics",
+    "global_funnel",
+    "user_segments",
 }
 
 

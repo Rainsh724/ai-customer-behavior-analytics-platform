@@ -97,6 +97,10 @@ def on_startup() -> None:
             "ensure_schema شکست خورد -- حافظه‌ی چت کار نخواهد کرد تا رفعش کنی"
         )
 
+    try:
+        memory_store.ensure_eval_schema()
+    except Exception:
+        logger.exception("ensure_eval_schema شکست خورد")
     # پیش‌بارگذاری کش صفحات داشبوردی -- تو یک ترد جدا تا startup سرور
     # رو معطل نکنه، ولی قبل از اینکه کاربری کلیک کنه شروع می‌شه.
     threading.Thread(target=_warm_all_caches, daemon=True).start()

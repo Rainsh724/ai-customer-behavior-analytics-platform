@@ -116,7 +116,8 @@ class ProductionSQLValidator:
             "user_behavior_logs": ["log_id", "session_id", "product_id", "event_type", "timestamp"],
             "comments": ["id", "product_id", "is_buyer", "rate", "recommendation_status", "likes", "dislikes", "raw_text_normalized", "created_at"],
             "comments_embedding": ["id", "embedded_comment"],
-            "comment_aspects": ["aspect_id", "comment_id", "term", "sentiment", "negative_pct", "neutral_pct", "positive_pct"]
+            "comment_aspects": ["aspect_id", "comment_id", "term", "sentiment", "negative_pct", "neutral_pct", "positive_pct"],
+            "product_negative_feedback_summary": ["product_id", "avg_negative_pct", "comment_cnt"]
         },
         "analytics": {
             "feature_behavior": ["log_id", "hour", "day", "month", "weekday", "is_weekend", "is_view", "is_cart", "is_remove", "is_purchase"],
@@ -140,7 +141,7 @@ class ProductionSQLValidator:
             "user_segments": ["user_id", "active_days", "total_views", "total_purchases", "total_spend", "user_segment", "user_conversion_pct"],
             "rfm_segments": ["user_id", "recency_days", "frequency", "monetary", "rfm_code", "rfm_label"],
             "ml_user_clusters": ["user_id", "cluster_id", "cluster_name"],
-            "brand_diagnostics": ["brand_id", "total_comments", "avg_rating", "brand_sentiment_score"],
+            "brand_diagnostics": ["brand_id", "brand_name", "total_views", "total_purchases", "total_comments", "avg_rating", "brand_sentiment_score"],
             "aspect_diagnostics": ["aspect_name", "total_mentions", "positive_mentions", "negative_mentions", "negative_impact_pct", "aspect_status"]
         }
     }
