@@ -9,7 +9,7 @@ import {
   Boxes, Info, Phone, Settings, LogOut, ChevronLeft, ChevronDown, Download,
   Sun, Moon, Sparkles, ArrowUpLeft, ShieldCheck, TrendingUp, ShoppingCart,
   Eye, Star, Mail, RefreshCw, Menu, X, BrainCircuit, BookOpen,
-  Send, Paperclip, BarChart3, Target, CircleHelp, Bot, Gem, UserRoundSearch, Pin, Plus, MoreHorizontal, MessageCircle, Clock3, Trash2 as TrashIcon,
+  Send, Copy,   Paperclip, BarChart3, Target, CircleHelp, Bot, Gem, UserRoundSearch, Pin, Plus, MoreHorizontal, MessageCircle, Clock3, Trash2 as TrashIcon,
   Layers3, Gauge, Headphones, Pencil, Check
 } from "lucide-react";
 import {
@@ -43,28 +43,66 @@ async function streamChat(message, sessionId, onStep, onFinal) {
   const response = await fetch(`${API_BASE}/api/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, session_id: sessionId }),
+    body: JSON.stringify({
+      message,
+      session_id: sessionId
+    }),
   });
+
+  if (!response.ok) {
+    throw new Error("خطا در اتصال به سرویس");
+  }
+
+  if (!response.body) {
+    throw new Error("پاسخ streaming از سرویس دریافت نشد");
+  }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+
   let buffer = "";
+  let finalReceived = false;
 
   while (true) {
     const { done, value } = await reader.read();
+
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
+
     const lines = buffer.split("\n\n");
     buffer = lines.pop();
 
     for (const line of lines) {
       if (!line.startsWith("data: ")) continue;
-      const event = JSON.parse(line.slice(6));
 
-      if (event.type === "step") onStep(event.message);
-      if (event.type === "final" || event.type === "error") onFinal(event);
+      let event;
+
+      try {
+        event = JSON.parse(line.slice(6));
+      } catch {
+        continue;
+      }
+
+      if (event.type === "step") {
+        onStep(event.message);
+      }
+
+      if (event.type === "final") {
+        finalReceived = true;
+        onFinal(event);
+      }
+
+      if (event.type === "error") {
+        throw new Error(
+          event.message || "سرویس با خطا مواجه شد"
+        );
+      }
     }
+  }
+
+  if (!finalReceived) {
+    throw new Error("پاسخ نهایی از سرویس دریافت نشد");
   }
 }
 
@@ -634,45 +672,309 @@ function Assistant() {
     setTopbarEditing(false);
   };
 
-  async function ask(question) {
+  async function ask(question, retryMessageId = null) {
     const q = question.trim();
-    if (!q || !active) return;
-    const sessionId = active.id;
-    setInput("");
-    const now = Date.now();
-    const userMessage = { role: "user", text: q, at: now };
-    const current = sessions.find(s => s.id === sessionId);
-    const title = (current?.messages?.length || (current?.title && current?.title !== "گفت‌وگوی جدید")) ? current.title : (q.length > 38 ? `${q.slice(0, 38)}…` : q);
-    const withUser = sessions.map(s => s.id === sessionId ? { ...s, title, messages: [...s.messages, userMessage], updatedAt: now } : s);
-    persist(withUser);
 
-    setLoadingSessions(prev => ({ ...prev, [sessionId]: "در حال شروع..." }));
+    if (!q || !active) return;
+
+    const sessionId = active.id;
+    const now = Date.now();
+
+    setInput("");
+
+    const latest = JSON.parse(
+      localStorage.getItem(STORAGE_KEY) || "[]"
+    );
+
+    const current = latest.find(
+      s => s.id === sessionId
+    );
+
+    if (!current) return;
+
+    let updatedMessages = [
+      ...(current.messages || [])
+    ];
+
+    // =========================
+    // RETRY
+    // =========================
+    if (retryMessageId) {
+      updatedMessages = updatedMessages.map(m =>
+        m.id === retryMessageId
+          ? {
+              ...m,
+              status: "loading",
+              text: "",
+              error: null,
+              chart: null,
+              at: now
+            }
+          : m
+      );
+    }
+
+    // =========================
+    // NEW MESSAGE
+    // =========================
+    else {
+      const userMessage = {
+        id: `msg-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 7)}`,
+        role: "user",
+        text: q,
+        at: now
+      };
+
+      const assistantMessage = {
+        id: `msg-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 7)}`,
+        role: "assistant",
+        text: "",
+        status: "loading",
+        retryQuestion: q,
+        at: now + 1
+      };
+
+      updatedMessages = [
+        ...updatedMessages,
+        userMessage,
+        assistantMessage
+      ];
+    }
+
+    const title =
+      current.messages?.length ||
+      (
+        current.title &&
+        current.title !== "گفت‌وگوی جدید"
+      )
+        ? current.title
+        : q.length > 38
+          ? `${q.slice(0, 38)}…`
+          : q;
+
+    const withMessage = latest.map(s =>
+      s.id === sessionId
+        ? {
+            ...s,
+            title,
+            messages: updatedMessages,
+            updatedAt: now
+          }
+        : s
+    );
+
+    persist(withMessage);
+
+    setLoadingSessions(prev => ({
+      ...prev,
+      [sessionId]: "در حال شروع..."
+    }));
+
     try {
       await streamChat(
         q,
         sessionId,
-        (stepMessage) => setLoadingSessions(prev => ({ ...prev, [sessionId]: stepMessage })),
+
+        // =========================
+        // STREAM STEP
+        // =========================
+        (stepMessage) => {
+          setLoadingSessions(prev => ({
+            ...prev,
+            [sessionId]: stepMessage
+          }));
+        },
+
+        // =========================
+        // FINAL RESPONSE
+        // =========================
         (finalEvent) => {
-          const answer = finalEvent.answer || "پاسخی از سرویس دریافت نشد.";
-          const latest = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-          const next = latest.map(s => s.id === sessionId ? { ...s, messages: [...s.messages, { role: "assistant", text: answer, chart: finalEvent.chart || null, at: Date.now() }], updatedAt: Date.now() } : s);
+          const answer =
+            finalEvent.answer ||
+            "پاسخی از سرویس دریافت نشد.";
+
+          const latestNow = JSON.parse(
+            localStorage.getItem(STORAGE_KEY) || "[]"
+          );
+
+          const sessionNow = latestNow.find(
+            s => s.id === sessionId
+          );
+
+          if (!sessionNow) return;
+
+          let msgs = [
+            ...(sessionNow.messages || [])
+          ];
+
+          if (retryMessageId) {
+            // Retry همان پیام قبلی را جایگزین می‌کند
+            msgs = msgs.map(m =>
+              m.id === retryMessageId
+                ? {
+                    ...m,
+                    text: answer,
+                    status: "success",
+                    error: null,
+                    chart:
+                      finalEvent.chart || null,
+                    at: Date.now()
+                  }
+                : m
+            );
+          } else {
+            // پاسخ درخواست جدید
+            const lastAssistantIndex =
+              msgs
+                .map(m => m.role)
+                .lastIndexOf("assistant");
+
+            if (lastAssistantIndex !== -1) {
+              msgs[lastAssistantIndex] = {
+                ...msgs[lastAssistantIndex],
+                text: answer,
+                status: "success",
+                error: null,
+                chart:
+                  finalEvent.chart || null,
+                at: Date.now()
+              };
+            }
+          }
+
+          const next = latestNow.map(s =>
+            s.id === sessionId
+              ? {
+                  ...s,
+                  messages: msgs,
+                  updatedAt: Date.now()
+                }
+              : s
+          );
+
           persist(next);
         }
       );
-    } catch {
-      const latest = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-      const next = latest.map(s => s.id === sessionId ? { ...s, messages: [...s.messages, { role: "assistant", text: "اتصال به دستیار برقرار نشد. تنظیمات اتصال سرویس را بررسی کنید.", at: Date.now() }], updatedAt: Date.now() } : s);
+    }
+
+    // =========================
+    // ERROR
+    // =========================
+    catch (error) {
+      const latestNow = JSON.parse(
+        localStorage.getItem(STORAGE_KEY) || "[]"
+      );
+
+      const sessionNow = latestNow.find(
+        s => s.id === sessionId
+      );
+
+      if (!sessionNow) return;
+
+      let msgs = [
+        ...(sessionNow.messages || [])
+      ];
+
+      const errorText =
+        "اتصال به دستیار برقرار نشد. برای تلاش مجدد روی دکمه ↻ بزنید.";
+
+      if (retryMessageId) {
+        // همان پیام خطا دوباره error می‌شود
+        msgs = msgs.map(m =>
+          m.id === retryMessageId
+            ? {
+                ...m,
+                text: "پاسخی از سرویس دریافت نشد.",
+                status: "error",
+                error: errorText,
+                at: Date.now()
+              }
+            : m
+        );
+      } else {
+        // درخواست جدید: placeholder را error می‌کنیم
+        const lastAssistantIndex =
+          msgs
+            .map(m => m.role)
+            .lastIndexOf("assistant");
+
+        if (lastAssistantIndex !== -1) {
+          msgs[lastAssistantIndex] = {
+            ...msgs[lastAssistantIndex],
+            text: "پاسخی از سرویس دریافت نشد.",
+            status: "error",
+            error: errorText,
+            retryQuestion: q,
+            at: Date.now()
+          };
+        }
+      }
+
+      const next = latestNow.map(s =>
+        s.id === sessionId
+          ? {
+              ...s,
+              messages: msgs,
+              updatedAt: Date.now()
+            }
+          : s
+      );
+
       persist(next);
-    } finally {
+    }
+
+    // =========================
+    // FINALLY
+    // =========================
+    finally {
       setLoadingSessions(prev => {
         const next = { ...prev };
+
         delete next[sessionId];
+
         return next;
       });
     }
   }
-  const selectQuestion = (q) => ask(q);
+  
 
+  const copyMessage = async (text) => {
+    if (!text) return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const textarea =
+        document.createElement("textarea");
+
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+
+      document.body.appendChild(textarea);
+
+      textarea.select();
+
+      document.execCommand("copy");
+
+      textarea.remove();
+    }
+  };
+
+  const retryMessage = (message) => {
+    if (!message?.retryQuestion) return;
+
+    ask(
+      message.retryQuestion,
+      message.id
+    );
+  };
+
+  const selectQuestion = (q) => ask(q);
   return (
     <section className="assistant-page">
       <PageTitle eyebrow="تحلیل هوشمند" title="دستیار هوشمند" desc="سؤال مدیریتی خود را به زبان طبیعی بپرسید و پاسخ تحلیلی دریافت کنید." icon={MessageSquareText} />
@@ -749,48 +1051,68 @@ function Assistant() {
           <div className="chat-messages chat-messages-large">
             {messages.map((m, i) => {
               let cleanText = m.text || "";
-              if (m.role === "assistant") {
-                // پاک‌سازی کدهای JSON خام، بلوک‌های کد و توضیحات اضافی رندر چارت از متن پیام
-                cleanText = cleanText
-                  .replace(/```(?:json)?[\s\S]*?"(?:type|datasets|chartjs_config|labels)"[\s\S]*?```/gi, "")
-                  .replace(/\{[\s\r\n]*"type"\s*:\s*"(?:line|bar|pie|scatter|area)"[\s\S]*?\n\s*\}/g, "")
-                  .replace(/تصویر نمودار\s*\([^\)]*JSON[^\)]*\)/gi, "")
-                  .replace(/\(کافی است این JSON را[\s\S]*?رندر شود\.?\)/gi, "")
-                  .replace(/\n{3,}/g, "\n\n")
-                  .trim();
-              }
 
-              return (
-                <div key={i} className={`message ${m.role}`}>
+              if (m.role === "assistant") {
+                cleanText = cleanText
+                  .replace(/```(?:json)?[\s\S]*?"(?:type|datasets|chartjs_config|labels)"[\s\S]*?```/gi,"")
+                  .replace(/\{\s*"type"\s*:\s*"(?:line|bar|pie|scatter|area)"[\s\S]*?\}/g,"")
+                  .replace(/تصویر نمودار\s*\([^)]*JSON[^)]*\)/gi,"")
+                  .replace(/\(کافی است این JSON را[\s\S]*?رندر شود\.\)/gi,"")
+                  .replace(/\n{3,}/g, "\n\n")
+                  .trim();}
+              const isError = m.status === "error";
+              const isLoading = m.status === "loading";
+              return (<div
+                  key={m.id || i}
+                  className={`message ${m.role} ${
+                    isError ? "message-error" : ""
+                  } ${
+                    isLoading ? "message-loading" : ""
+                  }`}
+                >
                   {m.role === "assistant" ? (
                     <>
-                      
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          table: ({ node, ...props }) => (
-                            <div className="md-table-scroll">
-                              <table {...props} />
-                            </div>
-                          )
-                        }}
-                      >
-                        {cleanText || m.text}
-                      </ReactMarkdown>
-                      {m.chart && <ChatChart chart={m.chart} />}
-                    </>
-                  ) : (
-                    m.text
-                  )}
-                </div>
-              );
-            })}
+                      {isLoading ? (
+                        <div className="message-loading-content">
+                          <span className="typing-dots">
+                            {loadingSessions[active?.id] ||"در حال دریافت پاسخ"}<span>.</span><span>.</span><span>.</span></span></div>
+                      ) : (
+                        <>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              table: ({ node, ...props }) => (
+                                <div className="md-table-scroll">
+                                  <table {...props} />
+                                </div>
+                              )
+                            }}
+                          >
+                            {cleanText || m.text}
+                          </ReactMarkdown>
 
-            {active && loadingSessions[active.id] && (
-              <div className="message assistant">
-                <span className="typing-dots">{loadingSessions[active.id]}<span>.</span><span>.</span><span>.</span></span>
-              </div>
-            )}
+                          {m.chart && (<ChatChart chart={m.chart} />)}
+                          {isError && (<div className="message-error-box"><span>{m.error ||"پاسخی از سرویس دریافت نشد."}</span>
+                              <button
+                                className="retry-message-btn"
+                                onClick={() => retryMessage(m)}
+                                disabled={!!loadingSessions[active?.id]}title="تلاش مجدد"><RefreshCw /></button></div>)}
+                          {!isError &&
+                            m.status !== "loading" &&
+                            m.text && (
+                              <div className="message-actions">
+                                <button
+                                  className="message-copy-btn"
+                                  onClick={() =>
+                                    copyMessage(cleanText || m.text)
+                                  }
+                                  title="کپی پاسخ"
+                                ><Copy /></button></div>)}</>)}</>) : (<><div className="message-user-text">{m.text}</div>
+                      {m.text && (<div className="message-actions">
+                          <button
+                            className="message-copy-btn"
+                            onClick={() => copyMessage(m.text)}
+                            title="کپی پیام"><Copy /></button></div>)}</>)}</div>);})}
         </div>
           <div className="composer composer-large">
             <div className="composer-star">✦</div>
@@ -805,16 +1127,7 @@ function Assistant() {
             <button
               className="send"
               onClick={() => ask(input)}
-              disabled={!!(active && loadingSessions[active.id])}
-            >
-              <Send />
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
+              disabled={!!(active && loadingSessions[active.id])}><Send /></button></div></div></div></section>);}
 
 function ChatSessionItem({ session, active, onSelect, onPin, onDelete, onRename }) {
   const [isEditing, setIsEditing] = useState(false);
