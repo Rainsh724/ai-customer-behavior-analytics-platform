@@ -47,6 +47,8 @@ def route_after_detect_multi_question(state: GraphState) -> str:
     این صورت (اکثر سوالات) دقیقاً همون مسیر قدیمیِ "agent" -- بدون
     کوچیک‌ترین تغییر -- طی می‌شه.
     """
+    if state.get("fatal_error"):
+        return "single_question"
     if state.get("is_multi_question"):
         return "multi_question"
     return "single_question"
@@ -68,6 +70,9 @@ def route_after_agent(state: GraphState) -> str:
     محافظت زودتری در برابر حالتی می‌ده که یک ابزار (مثلاً SQL) مدام شکست
     می‌خوره -- لازم نیست صبر کنیم کل ۶ دور مصرف بشه تا متوجه بشیم.
     """
+    if state.get("fatal_error"):
+        return "finalize"
+
     messages = state.get("messages", [])
     last_message = messages[-1] if messages else {}
 
@@ -108,6 +113,9 @@ def route_after_validate(state: GraphState) -> str:
     شکست خورد)، فیل-سیف "ok" برمی‌گردونیم -- بدون امتیاز، نمی‌شه تصمیم
     به اصلاح گرفت.
     """
+    if state.get("fatal_error"):
+        return "ok"
+
     validation = state.get("validation", {})
 
     if validation.get("skipped"):
@@ -127,6 +135,8 @@ def route_after_validate(state: GraphState) -> str:
 def route_after_sub_agent(
     state: GraphState,
 ) -> str:
+    if state.get("fatal_error"):
+        return "finalize"
 
     messages = state.get(
         "sub_question_messages",
@@ -168,6 +178,8 @@ def route_after_sub_agent(
 def route_after_sub_validate(
     state: GraphState,
 ) -> str:
+    if state.get("fatal_error"):
+        return "accept"
 
     validation = state.get(
         "sub_question_validation",
@@ -201,6 +213,8 @@ def route_after_sub_validate(
 def route_after_next_subquestion(
     state: GraphState,
 ) -> str:
+    if state.get("fatal_error"):
+        return "combine"
 
     index = state.get(
         "current_sub_question_index",
@@ -219,6 +233,9 @@ def route_after_next_subquestion(
 
 
 def route_after_tools(state: GraphState) -> str:
+    if state.get("fatal_error"):
+        return "finalize"
+
     consecutive_errors = state.get(
         "consecutive_tool_errors",
         0,

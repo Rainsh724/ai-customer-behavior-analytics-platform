@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 import json
+import time
 import logging
 
 from Graph.graph import get_graph
@@ -195,6 +196,12 @@ The answer must always be in Persian, fluent, concise, and managerial.
 Never show raw JSON, SQL, or tool traces.
 Never guess at data, cause, product, range, or numerical results that aren't backed by
 the tools. However, when the user asks for recommendations, marketing strategies, or actionable retention tactics (e.g. "برای بازگرداندنشان چه پیشنهادی مناسب است؟"), provide thoughtful, professional, and practical managerial recommendations based on the analyzed customer segments. Never decline to provide business advice or apologize for missing tools when asked for strategic suggestions.
+
+Directives:
+- If customer reviews or data for any requested entity (e.g. brand or product) do not exist in the database (hit_count=0), clearly and simply state: "نظری برای این مورد در پایگاه داده ثبت نشده است".
+- Once you have fetched the required data for the user's specific request, deliver the final answer immediately. NEVER run unprompted, off-topic side queries on different metrics (e.g. do not switch from fast-growing to top-selling).
+- NEVER question system infrastructure, mention tool limitations, or apologize with excuses such as "به دلیل محدودیت ابزارها". Maintain a confident, factual managerial tone.
+- Always use real Persian entity names (e.g. brand_name, category_name, product_title) alongside IDs when provided.
 """
 
 # ============================================================
@@ -687,7 +694,11 @@ def _prepare_conversation(
     # =========================================================
 
     if chat_id and history is None:
-        history = memory_store.load_messages(chat_id)
+        try:
+            history = memory_store.load_messages(chat_id)
+        except Exception as exc:
+            logger.warning("بارگذاری حافظه‌ی چت برای chat_id=%s با خطا مواجه شد: %s", chat_id, exc)
+            history = []
 
     messages: list[dict[str, Any]] = list(history) if history else []
 
@@ -832,7 +843,7 @@ def run(question, chat_id=None, history=None) -> dict[str, Any]:
 
     total_req_time = time.time() - t_req_start
     print(f"\n==========================================")
-    print(f"🏁 [TOTAL REQUEST TIME]: {total_req_time:.2f}s")
+    print(f"[TOTAL REQUEST TIME]: {total_req_time:.2f}s")
     print(f"==========================================\n")
 
     return result
@@ -919,7 +930,7 @@ def run_stream(question: str, chat_id: str | None = None, history: list[dict[str
 
     total_stream_time = time.time() - t_stream_start
     print(f"\n==========================================")
-    print(f"🏁 [TOTAL REQUEST TIME]: {total_stream_time:.2f}s")
+    print(f"[TOTAL REQUEST TIME]: {total_stream_time:.2f}s")
     print(f"==========================================\n")
 
     yield {"type": "final", "answer": result.get("final_answer"), "chart": chart, "errors": result.get("errors") or []}

@@ -60,6 +60,8 @@ TOOL_DEFINITIONS: list[dict] = [
                 "message as the dataset's \"today\" (e.g. instead of "
                 "NOW() - INTERVAL '30 days', write "
                 "'<reference date>'::date - INTERVAL '30 days').\n"
+                "- When filtering up to the reference date (upper boundary e.g. timestamp < ...), "
+                "always write '<reference date>'::date + INTERVAL '1 day' to include the full 24 hours of that reference day.\n"
                 "- Do not use this tool to read review text or do "
                 "semantic search -- that's tool_rag's job.\n\n"
                 """
@@ -77,6 +79,7 @@ TOOL_DEFINITIONS: list[dict] = [
                 and only then JOIN to products.
  
                 - Deterministic sort: Whenever you use ORDER BY with LIMIT, you can include an id column as secondary tie-breaker (e.g. ORDER BY total_views DESC, product_id ASC).
+                - Entity names: When analyzing or grouping by brands, categories, or products, always SELECT their name/title alongside their ID (e.g. b.name AS brand_name, cat.category2 AS category_name, p.title_fa AS product_title) so reports contain actual entity names instead of raw IDs.
                 - Realistic Data Scale: In this dataset, maximum product views is 33 (avg: 3.8, p90: 7). Top 10% high-traffic products have views >= 8. NEVER filter total_views > 20 or > 50 or > 100!
                 - For high-traffic low-conversion products, underperforming products, or products with untapped sales potential, query kpi.product_360 where managerial_action_tag = 'High Traffic, Low Conversion (نیازمند بررسی قیمت)' or total_views >= 8.
                 - Best-sellers scale: Maximum product purchases is 9. Top-sellers have total_purchases >= 2 or >= 3. Never filter purchases > 10!
@@ -114,20 +117,17 @@ TOOL_DEFINITIONS: list[dict] = [
             "description": (
                 "Semantic search over customer review text to find "
                 "qualitative evidence about a topic.\n\n"
-                "Very important rule about product_id:\n"
-                "If product_id is specified, only reviews for that exact "
-                "product_id count as valid evidence.\n\n"
-                "If product_id is specified and the result has "
-                "hit_count=0, you must not drop the product_id or run a "
-                "general search to compensate, and must not attribute "
-                "results from similar products to this product.\n\n"
-                "If no precise evidence for the product was found, you "
-                "must explicitly state that no evidence was found.\n\n"
+                "Filter rules:\n"
+                "- If product_id is specified, only reviews for that exact product count as valid evidence.\n"
+                "- If brand_id is specified, reviews across all products belonging to that brand are searched.\n"
+                "- If category_id is specified, reviews across all products belonging to that category are searched.\n\n"
+                "If a specific filter is given and hit_count=0, you must not drop the filter or attribute "
+                "results from other products/brands to this one. State explicitly that no evidence was found.\n\n"
                 "search_topic must reflect the direction of the question; "
                 "e.g. for an increase in sales, use 'reasons for "
-                "satisfaction and positive reception of product X', and "
+                "satisfaction and positive reception', and "
                 "for a complaint, use 'reasons for dissatisfaction and "
-                "complaints about product X'."
+                "complaints'."
             ),
             "parameters": {
                 "type": "object",
@@ -139,11 +139,22 @@ TOOL_DEFINITIONS: list[dict] = [
                             "reviews -- to find reasons for "
                             "dissatisfaction, phrase the topic in that "
                             "same direction (e.g. 'reasons for "
-                            "dissatisfaction and complaints about product "
-                            "X'), not just the product name alone."
+                            "dissatisfaction and complaints about brand/product "
+                            "X'), not just the name alone."
                         ),
                     },
-                    "product_id": {"type": ["integer", "null"]},
+                    "product_id": {
+                        "type": ["integer", "null"],
+                        "description": "Optional: Filter comments for a single specific product_id.",
+                    },
+                    "brand_id": {
+                        "type": ["integer", "null"],
+                        "description": "Optional: Filter comments for all products belonging to this brand_id.",
+                    },
+                    "category_id": {
+                        "type": ["integer", "null"],
+                        "description": "Optional: Filter comments for all products belonging to this category_id.",
+                    },
                 },
                 "required": ["search_topic"],
             },
@@ -239,6 +250,8 @@ def execute_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
             return run_rag_tool(
                 search_topic=arguments.get("search_topic", ""),
                 product_id=arguments.get("product_id"),
+                brand_id=arguments.get("brand_id"),
+                category_id=arguments.get("category_id"),
             )
 
         if name == "tool_chart":

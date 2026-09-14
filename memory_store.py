@@ -236,35 +236,51 @@ def get_conn() -> Iterator[psycopg2.extensions.connection]:
 
     pool = get_pool()
     conn = pool.getconn()
+    is_broken = False
+
+    # Liveness check: test if connection is still alive before using
+    try:
+        if conn.closed:
+            raise psycopg2.InterfaceError("connection closed")
+        with conn.cursor() as test_cur:
+            test_cur.execute("SELECT 1;")
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        try:
+            pool.putconn(conn, close=True)
+        except Exception:
+            pass
+        conn = pool.getconn()
 
     try:
         yield conn
         conn.commit()
 
-    except Exception:
+    except Exception as exc:
+        if isinstance(exc, (psycopg2.OperationalError, psycopg2.InterfaceError)):
+            is_broken = True
         try:
             conn.rollback()
         except Exception:
-            logger.exception(
-                "rollback اتصال حافظه‌ی چت شکست خورد."
-            )
+            is_broken = True
 
-        # A connection can become unusable after network/database
-        # failures. Test whether PostgreSQL still considers it usable.
         try:
-            if conn.closed:
+            if is_broken or conn.closed:
                 pool.putconn(conn, close=True)
             else:
                 pool.putconn(conn)
         except Exception:
-            logger.exception(
-                "بازگرداندن connection به pool شکست خورد."
-            )
+            try:
+                pool.putconn(conn, close=True)
+            except Exception:
+                pass
 
         raise
 
     else:
-        pool.putconn(conn)
+        try:
+            pool.putconn(conn)
+        except Exception:
+            pass
 
 
 # ============================================================

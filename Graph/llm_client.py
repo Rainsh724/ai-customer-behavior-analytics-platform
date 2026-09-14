@@ -26,7 +26,16 @@ import time
 from typing import Any, Callable, TypeVar
 
 from dotenv import load_dotenv
-from openai import OpenAI, RateLimitError
+from openai import (
+    OpenAI,
+    RateLimitError,
+    AuthenticationError,
+    PermissionDeniedError,
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    APIError,
+)
 
 load_dotenv()
 
@@ -35,6 +44,15 @@ logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
 
 _client: OpenAI | None = None
+
+
+class LLMServiceError(Exception):
+    """خطای ساختاری در ارتباط یا احراز هویت با سرویس مدل هوش مصنوعی"""
+
+    def __init__(self, user_message: str, original_exc: Exception | None = None):
+        super().__init__(user_message)
+        self.user_message = user_message
+        self.original_exc = original_exc
 
 
 def get_client() -> OpenAI:
@@ -93,8 +111,25 @@ def _call_with_rate_limit_retry(fn: Callable[[], _T]) -> _T:
                 wait_seconds,
             )
             time.sleep(wait_seconds)
-    assert last_exc is not None
-    raise last_exc
+        except (AuthenticationError, PermissionDeniedError) as exc:
+            msg = "خطا در احراز هویت یا اتمام سهمیه کلید سرویس هوش مصنوعی. لطفاً کلید API یا وضعیت حساب خود را بررسی کنید."
+            logger.error("LLM Auth/Quota error: %s", exc)
+            raise LLMServiceError(msg, original_exc=exc) from exc
+        except (APIConnectionError, APITimeoutError) as exc:
+            msg = "ارتباط با سرور مدل هوش مصنوعی برقرار نشد (خطای شبکه یا پایان مهلت زمان ارتباط). لطفاً اتصال اینترنت خود را بررسی کنید."
+            logger.error("LLM Connection error: %s", exc)
+            raise LLMServiceError(msg, original_exc=exc) from exc
+        except InternalServerError as exc:
+            msg = "سرور ارائه‌دهنده مدل هوش مصنوعی با خطای داخلی مواجه شد. لطفاً کمی بعد دوباره تلاش کنید."
+            logger.error("LLM Internal Server error: %s", exc)
+            raise LLMServiceError(msg, original_exc=exc) from exc
+        except APIError as exc:
+            msg = "خطا در ارتباط با سرویس هوش مصنوعی. لطفاً وضعیت سرویس را بررسی کنید."
+            logger.error("LLM API error: %s", exc)
+            raise LLMServiceError(msg, original_exc=exc) from exc
+    if last_exc is not None:
+        msg = "سقف مجاز ارسال درخواست به سرویس هوش مصنوعی تکمیل شده است (Rate Limit). لطفاً کمی صبر کرده و دوباره تلاش کنید."
+        raise LLMServiceError(msg, original_exc=last_exc) from last_exc
 
 
 def call_llm_json(
@@ -197,7 +232,7 @@ def call_llm_with_tools(
     if tool_choice != "none" and tools:
         kwargs["tools"] = tools
         kwargs["tool_choice"] = tool_choice
-        kwargs["parallel_tool_calls"] = False
+        kwargs["parallel_tool_calls"] = True
 
     logger.info(
         "LLM request: model=%s messages=%d chars≈%d tokens≈%d tools=%d",

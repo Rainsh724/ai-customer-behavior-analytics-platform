@@ -311,9 +311,9 @@ class ProductionSQLValidator:
 
             parsed = parsed_statements[0]
 
-            if not isinstance(parsed, exp.Select):
+            if not isinstance(parsed, (exp.Select, exp.Union)):
                 stmt_type = type(parsed).__name__.upper()
-                return False, [f"SECURITY ERROR: Only SELECT queries are permitted in analytics engine. Received forbidden statement type: '{stmt_type}'."]
+                return False, [f"SECURITY ERROR: Only SELECT/UNION queries are permitted in analytics engine. Received forbidden statement type: '{stmt_type}'."]
 
             qualified_parsed = qualify(parsed, dialect=self.dialect, schema=self.formatted_schema)
         except Exception as e:

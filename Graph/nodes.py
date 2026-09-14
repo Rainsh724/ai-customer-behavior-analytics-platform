@@ -9,7 +9,7 @@ from os import name
 from typing import Any, Callable
 
 from .state import GraphState
-from .llm_client import call_llm_with_tools, call_llm_json
+from .llm_client import call_llm_with_tools, call_llm_json, LLMServiceError
 from .tools import TOOL_DEFINITIONS, execute_tool_call
 from .audit import validate_answer, correct_answer as _real_correct_answer, CORRECTION_THRESHOLD
 from .dataset_time import get_reference_date
@@ -25,8 +25,21 @@ def safe_node(node_name: str) -> Callable:
     def decorator(fn: Callable[[GraphState], dict[str, Any]]) -> Callable:
         @functools.wraps(fn)
         def wrapper(state: GraphState) -> dict[str, Any]:
+            if state.get("fatal_error"):
+                return {
+                    "fatal_error": True,
+                    "final_answer": state.get("final_answer", ""),
+                }
             try:
                 return fn(state)
+            except LLMServiceError as exc:
+                logger.error("Node '%s' encountered LLMServiceError: %s", node_name, exc)
+                return {
+                    "fatal_error": True,
+                    "final_answer": exc.user_message,
+                    "messages": [{"role": "assistant", "content": exc.user_message}],
+                    "errors": [f"{node_name}: {exc}"],
+                }
             except Exception as exc:  # noqa: BLE001 - intentional catch-all at node boundary
                 logger.exception("Node '%s' failed", node_name)
                 return {"errors": [f"{node_name}: {exc}"]}
@@ -154,6 +167,8 @@ def _split_question(question: str) -> list[str]:
 
     try:
         result = call_llm_json(MULTI_QUESTION_SPLIT_PROMPT, question)
+    except LLMServiceError:
+        raise
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "multi_question: تفکیک سوال شکست خورد، به‌صورت تک‌سوالی ادامه می‌دیم: %s",
@@ -402,6 +417,33 @@ def sub_tools_node(
         if ok:
             all_errored = False
 
+        if result.get("fatal_error"):
+            db_error_msg = result.get("error", "ارتباط با پایگاه داده برقرار نشد. لطفاً وضعیت سرویس پایگاه داده را بررسی کنید.")
+            tool_messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "name": name,
+                    "content": db_error_msg,
+                }
+            )
+            tool_trace.append(
+                {
+                    "tool": name,
+                    "arguments": arguments,
+                    "ok": False,
+                    "summary": db_error_msg,
+                }
+            )
+            messages.extend(tool_messages)
+            return {
+                "fatal_error": True,
+                "final_answer": db_error_msg,
+                "sub_question_messages": messages,
+                "sub_question_tool_trace": tool_trace,
+                "sub_question_consecutive_tool_errors": MAX_CONSECUTIVE_TOOL_ERRORS,
+            }
+
         compact_result = compact_tool_result(
             name,
             result,
@@ -463,6 +505,10 @@ def sub_tools_node(
 def sub_finalize_node(
     state: GraphState,
 ) -> dict[str, Any]:
+    if state.get("fatal_error"):
+        return {
+            "final_answer": state.get("final_answer", "")
+        }
 
     messages = state.get(
         "sub_question_messages",
@@ -494,8 +540,10 @@ def sub_finalize_node(
         "role": "system",
         "content": (
             "دیگر اجازه‌ی tool_call جدید نداری. "
-            "فقط بر اساس ابزارهایی که واقعاً اجرا شده‌اند "
-            "یک پاسخ نهایی بده. اگر داده کافی نیست، صریح بگو."
+            "فقط بر اساس ابزارهایی که واقعاً اجرا شده‌اند یک پاسخ نهایی مدیریتی به زبان فارسی ارائه کن. "
+            "اگر برای هر نهاد یا برندی نظر یا داده‌ای در پایگاه داده وجود ندارد، صراحتاً و مستقیماً بگو "
+            "'نظری/داده‌ای برای این مورد در پایگاه داده ثبت نشده است'. "
+            "هرگز زیرساخت، ابزارها یا محدودیت‌های تحلیلی را زیر سوال نبر و بهانه‌تراشی نکن (مانند 'به دلیل محدودیت ابزارها')."
         ),
     }
 
@@ -529,6 +577,10 @@ def sub_finalize_node(
 def sub_validate_node(
     state: GraphState,
 ) -> dict[str, Any]:
+    if state.get("fatal_error"):
+        return {
+            "sub_question_validation": {"status": "skipped", "skipped": True}
+        }
 
     final_answer = state.get(
         "final_answer",
@@ -664,6 +716,17 @@ def next_subquestion_node(
 def combine_subanswers_node(
     state: GraphState,
 ) -> dict[str, Any]:
+    if state.get("fatal_error"):
+        fatal_msg = state.get("final_answer", "")
+        return {
+            "final_answer": fatal_msg,
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": fatal_msg,
+                }
+            ],
+        }
 
     answers = state.get(
         "sub_question_answers",
@@ -924,8 +987,9 @@ def _dataset_time_control_message() -> dict[str, Any]:
             "Never compute the exact calendar date yourself by hand: always "
             "write the SQL bound as an expression relative to the literal "
             f"reference date, e.g. '{reference_date}'::date - INTERVAL 'N days/months', "
-            "and let PostgreSQL evaluate it. Only PostgreSQL's own date "
-            "arithmetic is trusted for this."
+            "and when writing the upper boundary to include the reference day, always write: "
+            f"timestamp < '{reference_date}'::date + INTERVAL '1 day'. "
+            "Only PostgreSQL's own date arithmetic is trusted for this."
         ),
     }
 
@@ -1329,6 +1393,33 @@ def tools_node(state: GraphState) -> dict[str, Any]:
         ok = "error" not in result
         if not ok:
             has_error = True
+
+        if result.get("fatal_error"):
+            db_error_msg = result.get("error", "ارتباط با پایگاه داده برقرار نشد. لطفاً وضعیت سرویس پایگاه داده را بررسی کنید.")
+            tool_messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "name": name,
+                    "content": db_error_msg,
+                }
+            )
+            trace_entry = {
+                "tool": name,
+                "arguments": arguments,
+                "ok": False,
+                "summary": db_error_msg,
+            }
+            tool_trace.append(trace_entry)
+            return {
+                "fatal_error": True,
+                "final_answer": db_error_msg,
+                "messages": tool_messages + [{"role": "assistant", "content": db_error_msg}],
+                "tool_trace": tool_trace,
+                "consecutive_tool_errors": MAX_CONSECUTIVE_TOOL_ERRORS,
+                "tool_error": True,
+            }
+
         # ---------------------------------------------------------
         # مهم:
         # نتیجه کامل ابزار را مستقیماً وارد conversation نمی‌کنیم.
@@ -1431,6 +1522,11 @@ def _tool_calls_from_message(message: Any):
 
 @safe_node("finalize")
 def finalize_node(state: GraphState):
+    if state.get("fatal_error"):
+        return {
+            "final_answer": state.get("final_answer", "")
+        }
+
     messages = state.get("messages", [])
 
     if not messages:
@@ -1461,18 +1557,17 @@ def finalize_node(state: GraphState):
             "actually executed so far (not information from tools you intended "
             "to call but did not run). "
 
-            "If the available tool results are not sufficient to fully answer "
-            "the user's question, explicitly state which parts cannot be verified "
-            "with the available data. However, do not discard information that is "
-            "actually supported by the tool results by simply saying 'there is "
-            "not enough data'. Report all verified findings completely. "
-
-            "Never go beyond the evidence provided by tool outputs. "
-            "If the data only shows correlation, do not present a definite cause "
-            "or a guaranteed recommendation. "
-
-            "Report aspects using exactly their original names and do not invent "
-            "or add interpretations to their meanings."
+            "IMPORTANT INSTRUCTIONS FOR MISSING DATA AND INFRASTRUCTURE:\n"
+            "- If customer reviews or data for any requested entity (brand, product, category) "
+            "do not exist in the database (e.g. hit_count=0), state simply and factually: "
+            "'نظری/داده‌ای برای این مورد در پایگاه داده ثبت نشده است'.\n"
+            "- NEVER question system infrastructure, never blame tools or missing analytical capabilities, "
+            "and never apologize or use phrases like 'به دلیل محدودیت ابزارها' or 'عدم دسترسی به ابزارهای تحلیلی'. "
+            "State findings factually as they exist in the database.\n"
+            "- Always use real entity names (brand_name, category_name, product_title) whenever provided in the tool results.\n"
+            "- If the available tool results are not sufficient to fully answer some parts, state factually that no data was found for those parts. "
+            "Report all verified findings completely without discarding supported data.\n"
+            "- Never present correlation as definite causation."
         ),
     }
 
@@ -1521,6 +1616,11 @@ def finalize_node(state: GraphState):
 
 @safe_node("validate")
 def validate_node(state: GraphState) -> dict[str, Any]:
+    if state.get("fatal_error"):
+        return {
+            "validation": {"status": "skipped", "skipped": True}
+        }
+
     final_answer = state.get("final_answer", "")
     tool_trace = state.get("tool_trace", [])
     question = _extract_last_user_question(state.get("messages", []))
@@ -1579,6 +1679,10 @@ def _extract_last_user_question(messages: list[dict[str, Any]]) -> str:
 def correct_answer_node(
     state: GraphState,
 ) -> dict[str, Any]:
+    if state.get("fatal_error"):
+        return {
+            "final_answer": state.get("final_answer", "")
+        }
 
     validation = state.get(
         "validation",

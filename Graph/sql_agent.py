@@ -30,6 +30,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any
+import psycopg2
 from .production_validator import ProductionSQLValidator
 from .db import run_readonly_query
 from .dataset_time import get_reference_date
@@ -221,7 +222,7 @@ FORBIDDEN_KEYWORDS = re.compile(
 def _reference_date_boundary_pattern() -> re.Pattern[str]:
     ref = re.escape(get_reference_date().isoformat())
     return re.compile(
-        r"<\s*'" + ref + r"'(?:\s*::\s*date)?(?!\s*\+\s*INTERVAL)",
+        r"(?<![<=])<\s*'" + ref + r"'(?:\s*::\s*(?:date|timestamp)\b)?+(?!\s*[\+\-]\s*INTERVAL)",
         re.IGNORECASE,
     )
 
@@ -300,6 +301,13 @@ def run_sql_tool(sql: str) -> dict[str, Any]:
 
     try:
         rows = run_readonly_query(sql)
+    except psycopg2.OperationalError as exc:
+        logger.error("run_sql_tool: database operational/connection error: %s", exc)
+        return {
+            "error": "ارتباط با پایگاه داده برقرار نشد. لطفاً وضعیت سرویس پایگاه داده را بررسی کنید.",
+            "fatal_error": True,
+            "rejected_sql": sql,
+        }
     except Exception as exc:  # noqa: BLE001
         logger.warning("run_sql_tool: execution failed: %s", exc)
         return {"error": f"اجرای SQL شکست خورد: {exc}", "rejected_sql": sql}

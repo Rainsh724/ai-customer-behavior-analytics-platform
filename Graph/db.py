@@ -18,6 +18,7 @@ import time
 import logging
 from contextlib import contextmanager
 from typing import Any, Iterator
+from dotenv import load_dotenv
 
 import psycopg2
 import psycopg2.extras
@@ -25,12 +26,13 @@ from psycopg2.pool import ThreadedConnectionPool
 
 logger = logging.getLogger(__name__)
 
+load_dotenv()
+
 
 class DBConfig:
     DB_NAME = os.getenv("DB_NAME", "postgres")
-    # کاربر read-only مخصوص لایه LLM/آنالیتیکس -- نه superuser
-    DB_USER = os.getenv("DB_READONLY_USER", "postgres")
-    DB_PASSWORD = os.getenv("DB_READONLY_PASSWORD", "")
+    DB_USER = os.getenv("DB_READONLY_USER") or os.getenv("DB_USER", "postgres")
+    DB_PASSWORD = os.getenv("DB_READONLY_PASSWORD") or os.getenv("DB_PASSWORD", "")
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = os.getenv("DB_PORT", "5432")
 
@@ -64,16 +66,38 @@ def get_pool() -> ThreadedConnectionPool:
 def get_conn() -> Iterator[psycopg2.extensions.connection]:
     pool = get_pool()
     conn = pool.getconn()
+    is_broken = False
     try:
-        with conn.cursor() as cur:
-            cur.execute(f"SET statement_timeout = {DBConfig.STATEMENT_TIMEOUT_MS};")
-            cur.execute("SHOW statement_timeout;")
-            print("CURRENT TIMEOUT:", cur.fetchone())
-            # فقط SELECT مجازه -- دفاع دوم بعد از validation در sql_agent
-            cur.execute("SET default_transaction_read_only = on;")
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"SET statement_timeout = {DBConfig.STATEMENT_TIMEOUT_MS};")
+                cur.execute("SET default_transaction_read_only = on;")
+        except (psycopg2.OperationalError, psycopg2.InterfaceError):
+            # Connection in pool was stale or dead. Discard and get a fresh one.
+            try:
+                pool.putconn(conn, close=True)
+            except Exception:
+                pass
+            conn = pool.getconn()
+            with conn.cursor() as cur:
+                cur.execute(f"SET statement_timeout = {DBConfig.STATEMENT_TIMEOUT_MS};")
+                cur.execute("SET default_transaction_read_only = on;")
         yield conn
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        is_broken = True
+        raise
     finally:
-        pool.putconn(conn)
+        try:
+            if is_broken or conn.closed:
+                pool.putconn(conn, close=True)
+            else:
+                conn.rollback()
+                pool.putconn(conn)
+        except Exception:
+            try:
+                pool.putconn(conn, close=True)
+            except Exception:
+                pass
 
 
 def run_readonly_query(sql: str, params: tuple | None = None) -> list[dict[str, Any]]:
@@ -87,7 +111,7 @@ def run_readonly_query(sql: str, params: tuple | None = None) -> list[dict[str, 
             cur.execute(sql, params)
             rows = cur.fetchall()
             sql_duration = time.time() - t_sql0
-            print(f"  ⚡ [POSTGRES QUERY TIME]: {sql_duration:.3f}s ({len(rows)} rows)")
+            print(f"  [POSTGRES QUERY TIME]: {sql_duration:.3f}s ({len(rows)} rows)")
             return [dict(r) for r in rows]
 
 
@@ -119,10 +143,14 @@ def vector_similarity_search(
             c.raw_text_normalized,
             c.created_at,
             p.title_fa                AS product_title,
+            b.name                    AS brand_name,
+            cat.category2             AS category_name,
             (ce.embedded_comment <=> %s::vector) AS distance
         FROM comments c
         JOIN comments_embedding ce ON ce.id = c.id
         JOIN products p ON p.id = c.product_id
+        LEFT JOIN brands b ON b.brand_id = p.brand_id
+        LEFT JOIN categories cat ON cat.category_id = p.category_id
         WHERE ce.embedded_comment IS NOT NULL
         {("AND " + where_sql) if where_sql else ""}
         ORDER BY ce.embedded_comment <=> %s::vector
