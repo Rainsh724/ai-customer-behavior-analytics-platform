@@ -333,9 +333,20 @@ function Dashboard() {
           <ResponsiveContainer width="100%" height={330}>
             <LineChart data={trend}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip />
+              <XAxis dataKey="date"tickFormatter={formatDateFa}tick={{ fontSize: 11 }}minTickGap={18}/>
+              <YAxis tickFormatter={(v) => Number(v).toLocaleString("fa-IR")} />
+              <Tooltip
+                formatter={(value) => Number(value).toLocaleString("fa-IR")}
+                labelFormatter={(label) => formatDateFa(label)}
+                contentStyle={{
+                  direction: "rtl",
+                  textAlign: "right",
+                  borderRadius: 12,
+                  border: "1px solid #e5e9f7",
+                  boxShadow: "0 10px 25px rgba(60,70,140,.15)"
+                }}
+              />
+
               <Legend />
               <Line type="monotone" dataKey="views" name="بازدید" stroke="#6366f1" strokeWidth={3} dot={{ r: 3 }} />
               <Line type="monotone" dataKey="carts" name="سبد" stroke="#22c55e" strokeWidth={3} dot={{ r: 3 }} />
@@ -343,6 +354,8 @@ function Dashboard() {
               <Line type="monotone" dataKey="removes" name="حذف از سبد" stroke="#ef4444" strokeWidth={3} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer>
+
+
         ) : <EmptyChart text="داده روند ۳۰ روز اخیر از سرویس داشبورد دریافت نشد." />}
       </div>
       <div className="three-charts">
@@ -357,24 +370,118 @@ function Dashboard() {
 function Metric({ title, value, icon: Icon }) {
   return <div className="metric"><div className="metric-icon"><Icon /></div><div><span>{title}</span><strong>{value == null ? "—" : Number(value).toLocaleString("fa-IR")}</strong></div></div>;
 }
+
+function CategoryTick({ x, y, payload, translate }) {
+  const raw = String(payload?.value ?? "");
+  const text = translate ? translate(raw) : raw;
+
+  // فقط حداکثر 2 کلمه نمایش داده شود
+  const words = text.trim().split(/\s+/);
+  let label = words.slice(0, 2).join(" ");
+
+  // اگر متن بیشتر از 2 کلمه داشت، سه‌نقطه اضافه کن
+  if (words.length > 2) {
+    label += "…";
+  }
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{text}</title>
+
+      <text
+        x={0}
+        y={0}
+        dx={-8}
+        dy={4} textAnchor="end" fill="#64708f" fontSize={11}style={{ whiteSpace: "nowrap" }}>{label}</text></g>);}
+
 function ChartBlock({ title, data, keyName, valueKey, empty }) {
-  return <div className="chart-card small"><div className="card-head"><h3>{title}</h3></div>{data?.length ? (
-    <ResponsiveContainer width="100%" height={250}>
-      <BarChart layout="vertical" data={data} margin={{ right: 15, left: 5 }}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis type="number" />
-        <YAxis
-          type="category"
-          dataKey={keyName}
-          width={80}
-          tick={{ fontSize: 12 }}
-          tickFormatter={(v) => (v && String(v).length > 16 ? String(v).slice(0, 16) + "…" : v)}
-        />
-        <Tooltip />
-        <Bar dataKey={valueKey} name="تعداد" fill="#6366f1" radius={[0, 8, 8, 0]} />
-      </BarChart>
-    </ResponsiveContainer>
-  ) : <EmptyChart text={empty} />}</div>;
+  const isSegment = keyName === "segment";
+  const chartHeight = 340;
+
+  return (
+    <div className="chart-card small">
+      <div className="card-head">
+        <h3>{title}</h3>
+      </div>
+
+      {data?.length ? (
+        <div dir="ltr">
+          <ResponsiveContainer width="100%" height={chartHeight}>
+            <BarChart
+              layout="vertical"
+              data={data}
+              margin={{ top: 5, right: 45, left: -25, bottom: 5 }}
+              barCategoryGap="30%"
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+
+              <XAxis
+                type="number"
+                tickFormatter={(v) =>
+                  Number(v).toLocaleString("fa-IR")
+                }
+              />
+
+              <YAxis
+                type="category"
+                dataKey={keyName}
+                width={isSegment ? 135 : 110}
+                interval={0}
+                tick={
+                  <CategoryTick
+                    translate={
+                      isSegment
+                        ? translateSegmentCode
+                        : undefined
+                    }
+                  />
+                }
+              />
+
+              <Tooltip
+                allowEscapeViewBox={{ x: true, y: true }}
+                wrapperStyle={{
+                  zIndex: 9999,
+                  pointerEvents: "none"
+                }}
+                contentStyle={{
+                  direction: "rtl",
+                  textAlign: "right",
+                  borderRadius: 12,
+                  border: "1px solid #e5e9f7",
+                  boxShadow: "0 10px 25px rgba(60,70,140,.15)",
+                  padding: "10px 14px",
+                  fontSize: 12,
+                  background: "#ffffff",
+                  maxWidth: 380,
+                  whiteSpace: "normal",
+                  overflowWrap: "anywhere"
+                }}
+                formatter={(value) => [
+                  Number(value).toLocaleString("fa-IR"),
+                  "تعداد"
+                ]}
+                labelFormatter={(label) =>
+                  isSegment
+                    ? translateSegmentCode(label)
+                    : label
+                }
+              />
+
+              <Bar
+                dataKey={valueKey}
+                name="تعداد"
+                fill="#6366f1"
+                radius={[0, 8, 8, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <EmptyChart text={empty} />
+      )}
+    </div>
+  );
 }
 function EmptyChart({ text }) { return <div className="empty-chart"><Sparkles /><span>{text}</span></div>; }
 function ChartSkeleton() { return <div className="chart-skeleton"><span /><span /><span /></div>; }
@@ -384,7 +491,7 @@ const preparedQuestions = [
   "۵ محصول با بیشترین بازدید اما پایین‌ترین نرخ تبدیل به خرید کدام‌اند؟",
   "۵ برند برتر از نظر تعداد فروش و درآمد در ۳۰ روز اخیر کدام‌اند؟",
   "۵ دسته‌بندی برتر از نظر تعداد خرید و تعداد خریداران کدام‌اند؟",
-  "۵ در چه ساعات و روزهایی بیشترین خرید انجام می‌شود؟"
+  " در چه ساعات و روزهایی بیشترین خرید انجام می‌شود؟"
 ];
 
 const CHART_COLORS = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4", "#a855f7", "#ec4899", "#84cc16"];
@@ -451,8 +558,7 @@ function Assistant() {
   });
   const [activeId, setActiveId] = useState(null);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [currentStep, setCurrentStep] = useState("");
+  const [loadingSessions, setLoadingSessions] = useState({}); // { [sessionId]: "متن مرحله فعلی" }
   const [topbarEditing, setTopbarEditing] = useState(false);
   const [topbarTitle, setTopbarTitle] = useState("");
 
@@ -531,35 +637,38 @@ function Assistant() {
   async function ask(question) {
     const q = question.trim();
     if (!q || !active) return;
+    const sessionId = active.id;
     setInput("");
     const now = Date.now();
     const userMessage = { role: "user", text: q, at: now };
-    const current = sessions.find(s => s.id === active.id);
+    const current = sessions.find(s => s.id === sessionId);
     const title = (current?.messages?.length || (current?.title && current?.title !== "گفت‌وگوی جدید")) ? current.title : (q.length > 38 ? `${q.slice(0, 38)}…` : q);
-    const withUser = sessions.map(s => s.id === active.id ? { ...s, title, messages: [...s.messages, userMessage], updatedAt: now } : s);
+    const withUser = sessions.map(s => s.id === sessionId ? { ...s, title, messages: [...s.messages, userMessage], updatedAt: now } : s);
     persist(withUser);
- 
-        setLoading(true);
-    setCurrentStep("در حال شروع...");
+
+    setLoadingSessions(prev => ({ ...prev, [sessionId]: "در حال شروع..." }));
     try {
       await streamChat(
         q,
-        active.id,
-        (stepMessage) => setCurrentStep(stepMessage),
+        sessionId,
+        (stepMessage) => setLoadingSessions(prev => ({ ...prev, [sessionId]: stepMessage })),
         (finalEvent) => {
           const answer = finalEvent.answer || "پاسخی از سرویس دریافت نشد.";
           const latest = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-          const next = latest.map(s => s.id === active.id ? { ...s, messages: [...s.messages, { role: "assistant", text: answer, chart: finalEvent.chart || null, at: Date.now() }], updatedAt: Date.now() } : s);
+          const next = latest.map(s => s.id === sessionId ? { ...s, messages: [...s.messages, { role: "assistant", text: answer, chart: finalEvent.chart || null, at: Date.now() }], updatedAt: Date.now() } : s);
           persist(next);
         }
       );
     } catch {
       const latest = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-      const next = latest.map(s => s.id === active.id ? { ...s, messages: [...s.messages, { role: "assistant", text: "اتصال به دستیار برقرار نشد. تنظیمات اتصال سرویس را بررسی کنید.", at: Date.now() }], updatedAt: Date.now() } : s);
+      const next = latest.map(s => s.id === sessionId ? { ...s, messages: [...s.messages, { role: "assistant", text: "اتصال به دستیار برقرار نشد. تنظیمات اتصال سرویس را بررسی کنید.", at: Date.now() }], updatedAt: Date.now() } : s);
       persist(next);
     } finally {
-      setLoading(false);
-      setCurrentStep("");
+      setLoadingSessions(prev => {
+        const next = { ...prev };
+        delete next[sessionId];
+        return next;
+      });
     }
   }
   const selectQuestion = (q) => ask(q);
@@ -677,16 +786,29 @@ function Assistant() {
               );
             })}
 
-            {loading && (
+            {active && loadingSessions[active.id] && (
               <div className="message assistant">
-                <span className="typing-dots">{currentStep || "در حال تحلیل اطلاعات"}<span>.</span><span>.</span><span>.</span></span>
+                <span className="typing-dots">{loadingSessions[active.id]}<span>.</span><span>.</span><span>.</span></span>
               </div>
             )}
         </div>
           <div className="composer composer-large">
-            <button title="افزودن فایل"><Paperclip /></button>
-            <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && ask(input)} placeholder="سؤال مدیریتی خود را بنویسید..." />
-            <button className="send" onClick={() => ask(input)} disabled={loading}><Send /></button>
+            <div className="composer-star">✦</div>
+
+            <input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && ask(input)}
+              placeholder="سؤال مدیریتی خود را بنویسید..."
+            />
+
+            <button
+              className="send"
+              onClick={() => ask(input)}
+              disabled={!!(active && loadingSessions[active.id])}
+            >
+              <Send />
+            </button>
           </div>
         </div>
       </div>
@@ -785,6 +907,19 @@ function CustomerIntelligence() {
 function translateSegment(s) {
   return ({ "VIP Customer": "مشتری ویژه", "Returning Customer": "مشتری بازگشتی", "One-Time Buyer": "خریدار تک‌مرتبه‌ای", "Low Engagement": "تعامل پایین", "Window Shopper": "بازدیدکننده بدون خرید", "Window Shopper (فقط بازدیدکننده)": "بازدیدکننده بدون خرید" })[s] || s || "—";
 }
+
+const segmentLabelFa = {
+  vip_champions: "مشتری ویژه",
+  active_loyals: "مشتری بازگشتی",
+  night_weekend_buyers: "خریدار تک‌مرتبه‌ای",
+  low_intent_shoppers: "تعامل پایین",
+  churned_customers: "بازدیدکننده بدون خرید",
+};
+function translateSegmentCode(code) {
+  if (!code) return "—";
+  return segmentLabelFa[code] || String(code).replace(/_/g, " ");
+}
+
 async function downloadSegment(s) {
   try {
     const map = {"VIP Customer":"vip_champions","Returning Customer":"active_loyals","One-Time Buyer":"night_weekend_buyers","Low Engagement":"low_intent_shoppers","Window Shopper":"churned_customers"};
@@ -916,6 +1051,22 @@ function SettingsPage({ theme, setTheme }) {
   return <section><PageTitle eyebrow="شخصی‌سازی" title="تنظیمات" desc="حالت نمایش سامانه را مطابق سلیقه خود تنظیم کنید." icon={Settings} />
     <div className="settings-card"><div className="settings-art"><Gauge /></div><div><h3>حالت نمایش</h3><p>بین حالت روشن و شب انتخاب کنید.</p><div className="theme-switch"><button className={theme === "light" ? "active" : ""} onClick={() => setTheme("light")}><Sun /> حالت روشن</button><button className={theme === "dark" ? "active" : ""} onClick={() => setTheme("dark")}><Moon /> حالت شب</button></div></div></div>
   </section>;
+}
+
+function formatDateFa(value) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat("fa-IR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 }
 
 function fmt(v) { return v == null ? "—" : Number(v).toLocaleString("fa-IR"); }
