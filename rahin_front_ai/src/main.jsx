@@ -39,6 +39,35 @@ async function json(path, options = {}) {
   return (await api(path, options)).json();
 }
 
+async function streamChat(message, sessionId, onStep, onFinal) {
+  const response = await fetch(`${API_BASE}/api/chat/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, session_id: sessionId }),
+  });
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n\n");
+    buffer = lines.pop();
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const event = JSON.parse(line.slice(6));
+
+      if (event.type === "step") onStep(event.message);
+      if (event.type === "final" || event.type === "error") onFinal(event);
+    }
+  }
+}
+
 const menu = [
   ["home", "خانه", HomeIcon],
   ["dashboard", "داشبورد", LayoutDashboard],
@@ -423,6 +452,7 @@ function Assistant() {
   const [activeId, setActiveId] = useState(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [currentStep, setCurrentStep] = useState("");
 
   const persist = (next) => {
     setSessions(next);
@@ -494,19 +524,30 @@ function Assistant() {
     const title = current?.messages?.length ? current.title : (q.length > 38 ? `${q.slice(0, 38)}…` : q);
     const withUser = sessions.map(s => s.id === active.id ? { ...s, title, messages: [...s.messages, userMessage], updatedAt: now } : s);
     persist(withUser);
-    setLoading(true);
+ 
+        setLoading(true);
+    setCurrentStep("در حال شروع...");
     try {
-      const data = await json("/api/chat", { method: "POST", body: JSON.stringify({ message: q, session_id: active.id }) });
-      const answer = data.answer || data.response || "پاسخی از سرویس دریافت نشد.";
-      const latest = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-      const next = latest.map(s => s.id === active.id ? { ...s, messages: [...s.messages, { role: "assistant", text: answer, chart: data.chart || null, at: Date.now() }], updatedAt: Date.now() } : s);        persist(next);
+      await streamChat(
+        q,
+        active.id,
+        (stepMessage) => setCurrentStep(stepMessage),
+        (finalEvent) => {
+          const answer = finalEvent.answer || "پاسخی از سرویس دریافت نشد.";
+          const latest = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+          const next = latest.map(s => s.id === active.id ? { ...s, messages: [...s.messages, { role: "assistant", text: answer, chart: finalEvent.chart || null, at: Date.now() }], updatedAt: Date.now() } : s);
+          persist(next);
+        }
+      );
     } catch {
       const latest = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
       const next = latest.map(s => s.id === active.id ? { ...s, messages: [...s.messages, { role: "assistant", text: "اتصال به دستیار برقرار نشد. تنظیمات اتصال سرویس را بررسی کنید.", at: Date.now() }], updatedAt: Date.now() } : s);
       persist(next);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+      setCurrentStep("");
+    }
   }
-
   const selectQuestion = (q) => ask(q);
 
   return (
@@ -576,9 +617,10 @@ function Assistant() {
                 </div>
               );
             })}
+
             {loading && (
               <div className="message assistant">
-                <span className="typing-dots"> در حال تحلیل اطلاعات<span>.</span><span>.</span><span>.</span></span>
+                <span className="typing-dots">{currentStep || "در حال تحلیل اطلاعات"}<span>.</span><span>.</span><span>.</span></span>
               </div>
             )}
         </div>
