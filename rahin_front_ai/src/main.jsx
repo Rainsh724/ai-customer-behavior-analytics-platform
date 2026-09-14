@@ -655,7 +655,19 @@ function Assistant() {
                 <div key={i} className={`message ${m.role}`}>
                   {m.role === "assistant" ? (
                     <>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{cleanText || m.text}</ReactMarkdown>
+                      
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          table: ({ node, ...props }) => (
+                            <div className="md-table-scroll">
+                              <table {...props} />
+                            </div>
+                          )
+                        }}
+                      >
+                        {cleanText || m.text}
+                      </ReactMarkdown>
                       {m.chart && <ChatChart chart={m.chart} />}
                     </>
                   ) : (

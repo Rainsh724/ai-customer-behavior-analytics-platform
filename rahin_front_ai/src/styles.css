@@ -935,11 +935,19 @@ button, input, .quick-card, .metric, .chart-card, .table-card, .settings-card,
 .message { max-width:min(78%,760px); padding:12px 15px; border-radius:16px; margin-bottom:10px; line-height:2; font-size:10px; box-shadow:0 4px 15px rgba(50,75,135,.05);}
 .message.user { margin-right:auto; margin-left:0; background:linear-gradient(135deg,#e6efff,#eaf4ff); color:#21479c; border:1px solid rgba(86,128,211,.12); border-bottom-right-radius:5px;}
 .message.assistant { margin-left:auto; margin-right:0; background:linear-gradient(135deg,#f0edff,#eaf6ff); color:#3f3a82; border:1px solid rgba(115,89,226,.13); border-bottom-left-radius:5px;}
-.message.assistant table {width: 100%;border-collapse: collapse;margin: 16px 0;display: block;overflow-x: auto;max-width: 100%;}
 .message.assistant table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.7);
-  overflow: hidden;
+}
+.message.assistant .md-table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 16px 0;
+  border-radius: 12px;
+  -webkit-overflow-scrolling: touch;
 }
 .message.assistant th,
 .message.assistant td {padding: 10px 12px;border: 1px solid rgba(100, 116, 139, 0.18);text-align: right;white-space: nowrap;}
