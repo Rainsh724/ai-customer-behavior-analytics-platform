@@ -673,20 +673,15 @@ def _build_follow_up_system_context(
 
     return "\n".join(lines)
 
-
-def run(
+def _prepare_conversation(
     question: str,
     chat_id: str | None = None,
     history: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    """
-    اجرای یک درخواست.
+) -> tuple[list[dict[str, Any]], dict[str, Any], int]:
+    # دقیقاً همون بدنه‌ی مراحل ۱ تا ۶ فعلی run() رو این‌جا بذار
+    # (بدون هیچ تغییری در منطق) و در پایان به‌جای اجرای گراف، برگردون:
 
-    Priority 2:
-    برای Follow-upهای کوتاه، active conversation context
-    به‌صورت deterministic از history استخراج می‌شود.
-    """
-
+    
     # =========================================================
     # 1. Load persistent conversation memory
     # =========================================================
@@ -806,54 +801,116 @@ def run(
     # =========================================================
 
     messages = memory_store.maybe_compact(messages)
+    
 
-    # =========================================================
-    # 7. Run graph
-    # =========================================================
+    return messages, conversation_context, current_turn_index
+
+
+
+
+def run(question, chat_id=None, history=None) -> dict[str, Any]:
+    messages, conversation_context, current_turn_index = _prepare_conversation(question, chat_id, history)
 
     graph = get_graph()
-
-    result = graph.invoke(
-        {
-            "messages": messages,
-            "conversation_context": conversation_context,
-            "iterations": 0,
-            "consecutive_tool_errors": 0,
-            "tool_trace": [],
-            "errors": [],
-        }
-    )
-
-    # =========================================================
-    # 8. Persist conversation
-    # =========================================================
+    result = graph.invoke({
+        "messages": messages,
+        "conversation_context": conversation_context,
+        "iterations": 0,
+        "consecutive_tool_errors": 0,
+        "tool_trace": [],
+        "errors": [],
+    })
 
     if chat_id:
-        memory_store.save_messages(
-            chat_id,
-            result["messages"],
-        )
-
-    # =========================================================
-    # 9. Log evaluation metrics (faithfulness / relevance / confidence)
-    #    برای محاسبه‌ی تجمعیِ calibration در آینده (نگاه کن به
-    #    memory_store.py::log_evaluation/compute_calibration). این کار
-    #    برای مسیر تک‌سوالی و چندبخشی یکسانه، چون هر دو مسیر نهایتاً از
-    #    همون validate_node مشترک state["validation"] رو پر می‌کنن.
-    #    Best-effort -- شکستش هیچ‌وقت نباید جواب کاربر رو خراب کنه.
-    # =========================================================
+        memory_store.save_messages(chat_id, result["messages"])
 
     try:
-        memory_store.log_evaluation(
-            chat_id,
-            question,
-            result.get("validation", {}),
-            turn_index=current_turn_index,
-        )
-    except Exception as exc:  # noqa: BLE001
+        memory_store.log_evaluation(chat_id, question, result.get("validation", {}), turn_index=current_turn_index)
+    except Exception as exc:
         logger.warning("log_evaluation failed: %s", exc)
 
     return result
+
+AGENT_STEP_MESSAGES = {
+    "detect_multi_question": "🔍 در حال بررسی درخواست شما...",
+    "agent": "🧠 در حال تحلیل درخواست...",
+    "sub_agent": "🧠 در حال تحلیل این بخش از درخواست...",
+    "tool_sql": "🗄️ در حال بازیابی اطلاعات...",
+    "tool_rag": "💬 در حال بررسی نظرات مشتریان...",
+    "tool_chart": "📊 در حال آماده‌سازی نمودار...",
+    "finalize": "🧠 در حال جمع‌بندی نتایج...",
+    "sub_finalize": "🧠 در حال جمع‌بندی این بخش...",
+    "validate": "✅ در حال بررسی صحت پاسخ...",
+    "sub_validate": "✅ در حال بررسی صحت این بخش...",
+    "prepare_subquestion": "🧩 در حال آماده‌سازی بخش‌های درخواست...",
+    "next_subquestion": "🧩 در حال رفتن به بخش بعدی...",
+    "combine_subanswers": "🧠 در حال ترکیب نتایج...",
+    "prepare_retry": "🔄 در حال تکمیل بررسی...",
+    "prepare_sub_retry": "🔄 در حال تکمیل بررسی این بخش...",
+    "correct_answer": "✍️ در حال آماده‌سازی پاسخ نهایی...",
+}
+DEFAULT_STEP_MESSAGE = "⏳ در حال پردازش..."
+
+
+def _resolve_step_events(node_name, node_output, prev_sub_trace_len):
+    if "errors" in node_output and node_name not in AGENT_STEP_MESSAGES:
+        return [{"node": node_name, "message": "⚠️ خطایی رخ داد، در حال تلاش برای اصلاح..."}]
+
+    if node_name == "tools":
+        trace = node_output.get("tool_trace") or []
+        return [{"node": e.get("tool"), "message": AGENT_STEP_MESSAGES.get(e.get("tool"), DEFAULT_STEP_MESSAGE)} for e in trace]
+
+    if node_name == "sub_tools":
+        trace = node_output.get("sub_question_tool_trace") or []
+        new_entries = trace[prev_sub_trace_len[0]:]
+        prev_sub_trace_len[0] = len(trace)
+        return [{"node": e.get("tool"), "message": AGENT_STEP_MESSAGES.get(e.get("tool"), DEFAULT_STEP_MESSAGE)} for e in new_entries]
+
+    return [{"node": node_name, "message": AGENT_STEP_MESSAGES.get(node_name, DEFAULT_STEP_MESSAGE)}]
+
+
+def run_stream(question: str, chat_id: str | None = None, history: list[dict[str, Any]] | None = None):
+    messages, conversation_context, current_turn_index = _prepare_conversation(question, chat_id, history)
+
+    graph = get_graph()
+    input_state = {
+        "messages": messages,
+        "conversation_context": conversation_context,
+        "iterations": 0,
+        "consecutive_tool_errors": 0,
+        "tool_trace": [],
+        "errors": [],
+    }
+
+    final_state = None
+    prev_sub_trace_len = [0]
+
+    for mode, chunk in graph.stream(input_state, stream_mode=["updates", "values"]):
+        if mode == "values":
+            final_state = chunk
+            continue
+        node_name = next(iter(chunk))
+        node_output = chunk[node_name]
+        for event in _resolve_step_events(node_name, node_output, prev_sub_trace_len):
+            yield {"type": "step", **event}
+
+    result = final_state or {}
+
+    if chat_id:
+        memory_store.save_messages(chat_id, result.get("messages", []))
+
+    try:
+        memory_store.log_evaluation(chat_id, question, result.get("validation", {}), turn_index=current_turn_index)
+    except Exception as exc:
+        logger.warning("log_evaluation failed: %s", exc)
+
+    chart = None
+    for entry in reversed(result.get("tool_trace", []) or []):
+        if entry.get("tool") == "tool_chart" and entry.get("ok") and entry.get("chart_data"):
+            chart = entry["chart_data"]
+            break
+
+    yield {"type": "final", "answer": result.get("final_answer"), "chart": chart, "errors": result.get("errors") or []}
 
 
 def main() -> None:
