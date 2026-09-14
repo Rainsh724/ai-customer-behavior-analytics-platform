@@ -13,7 +13,8 @@ FastAPI لایه‌ی بک‌اند برای دستیار هوشمند.
     ->   {"answer": "..."}
 """
 from __future__ import annotations
-
+import json
+from main import run as run_agent, run_stream as run_agent_stream
 import logging
 import os
 import threading
@@ -145,6 +146,21 @@ def chat(payload: ChatRequest) -> ChatResponse:
 
     return ChatResponse(answer=answer, chart=chart)
 
+@app.post("/api/chat/stream")
+def chat_stream(payload: ChatRequest):
+    question = payload.message.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="message خالی است")
+
+    def event_generator():
+        try:
+            for event in run_agent_stream(question=question, chat_id=payload.session_id):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception:
+            logger.exception("stream failed for session_id=%s", payload.session_id)
+            yield f"data: {json.dumps({'type': 'error', 'message': 'خطا در پردازش'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.delete("/api/chat/{session_id}")
 def delete_chat(session_id: str) -> dict:
