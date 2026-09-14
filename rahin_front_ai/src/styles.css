@@ -864,10 +864,30 @@ button, input, .quick-card, .metric, .chart-card, .table-card, .settings-card,
 .chat-session-text strong { display:block; color:#263a70; font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .chat-session-text span { display:block; color:#98a5c0; font-size:7px; direction:ltr; text-align:right; margin-top:3px; overflow:hidden; text-overflow:ellipsis;}
 .chat-session-actions { display:flex; opacity:0; transition:.2s;}
-.chat-session:hover .chat-session-actions,.chat-session.active .chat-session-actions { opacity:1;}
+.chat-session:hover .chat-session-actions,.chat-session.active .chat-session-actions,.chat-session.editing .chat-session-actions { opacity:1;}
 .chat-session-actions button { width:24px; height:24px; border:0; background:transparent; color:#8492af; display:grid; place-items:center; padding:0; border-radius:7px;}
 .chat-session-actions button:hover { background:#e4e9f7; color:#664fe2;}
+.chat-session-actions button.save-btn { color: #16a34a; }
+.chat-session-actions button.save-btn:hover { background: rgba(34, 197, 94, 0.14); color: #15803d; }
+.chat-session-actions button.cancel-btn { color: #dc2626; }
+.chat-session-actions button.cancel-btn:hover { background: rgba(239, 68, 68, 0.14); color: #b91c1c; }
 .chat-session-actions svg { width:13px;}
+.chat-session-rename-input {
+  width: 100%;
+  border: 1px solid #7c67e8;
+  background: #fff;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-family: inherit;
+  color: #213564;
+  outline: none;
+  box-sizing: border-box;
+}
+.chat-session-rename-input:focus {
+  border-color: #6449e7;
+  box-shadow: 0 0 0 2px rgba(100, 73, 231, 0.18);
+}
 .chat-sidebar-footer { margin-top:10px; padding:10px; border-radius:12px; background:rgba(104,83,230,.06); color:#7d8ba8; font-size:8px; line-height:1.8; display:flex; gap:7px;}
 .chat-sidebar-footer svg { width:14px; flex:0 0 14px; color:#7354e8;}
 
@@ -883,8 +903,18 @@ button, input, .quick-card, .metric, .chart-card, .table-card, .settings-card,
 .chat-topbar-badge { width:40px; height:40px; border-radius:13px; display:grid; place-items:center; color:#fff; background:linear-gradient(135deg,#6f51ec,#18c5df); box-shadow:0 8px 20px rgba(83,85,220,.2);}
 .chat-topbar-badge svg { width:21px;}
 .chat-topbar-info { flex:1; min-width:0;}
+.chat-topbar-title-wrap { display:flex; align-items:center; gap:8px;}
 .chat-topbar-info strong { display:block; color:#1d3473; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .chat-topbar-info span { display:block; color:#93a0b9; font-size:8px; direction:ltr; text-align:right; margin-top:3px;}
+.chat-topbar-edit-btn { border:0; background:transparent; color:#8492af; display:inline-grid; place-items:center; padding:4px; border-radius:6px; cursor:pointer; transition:0.2s;}
+.chat-topbar-edit-btn:hover { background:#e4e9f7; color:#664fe2;}
+.chat-topbar-edit-btn svg { width:13px; height:13px;}
+.chat-topbar-edit-wrap { display:flex; align-items:center; gap:6px;}
+.chat-topbar-rename-input { border:1px solid #7c67e8; background:#fff; border-radius:7px; padding:3px 9px; font-size:12px; font-weight:700; color:#1d3473; outline:none; font-family:inherit; max-width:280px; width:100%;}
+.chat-topbar-rename-input:focus { border-color:#6449e7; box-shadow:0 0 0 2px rgba(100,73,231,0.18);}
+.chat-topbar-action-btn { width:26px; height:26px; border:0; background:#eef2ff; color:#4f46e5; display:grid; place-items:center; padding:0; border-radius:6px; cursor:pointer; transition:0.2s;}
+.chat-topbar-action-btn:hover { background:#e0e7ff;}
+.chat-topbar-action-btn svg { width:13px; height:13px;}
 .chat-status { display:flex; align-items:center; gap:6px; font-size:9px; color:#5f789d;}
 .chat-status i { width:7px; height:7px; border-radius:50%; background:#1cc584; box-shadow:0 0 0 4px rgba(28,197,132,.1);}
 
@@ -944,11 +974,18 @@ button, input, .quick-card, .metric, .chart-card, .table-card, .settings-card,
 :root[data-theme="dark"] .chat-session-text span { color:#93a5c5;}
 :root[data-theme="dark"] .chat-session-actions button { color:#9aa9c5;}
 :root[data-theme="dark"] .chat-session-actions button:hover { background:#334a78; color:#d0c6ff;}
+:root[data-theme="dark"] .chat-session-rename-input { background:#1f335b; border-color:#5572b0; color:#f0f5ff;}
+:root[data-theme="dark"] .chat-session-rename-input:focus { border-color:#8c73ff; box-shadow:0 0 0 2px rgba(140,115,255,0.25);}
 :root[data-theme="dark"] .chat-sidebar-footer { background:rgba(130,106,238,.09); color:#aebbd5;}
 :root[data-theme="dark"] .chat-main { background:linear-gradient(145deg,rgba(29,48,88,.96),rgba(35,51,91,.94));}
 :root[data-theme="dark"] .chat-topbar { background:rgba(31,51,91,.72); border-color:rgba(148,175,228,.17);}
 :root[data-theme="dark"] .chat-topbar-info strong { color:#f0f5ff;}
 :root[data-theme="dark"] .chat-topbar-info span { color:#96a8c5;}
+:root[data-theme="dark"] .chat-topbar-edit-btn:hover { background:#334a78; color:#d0c6ff;}
+:root[data-theme="dark"] .chat-topbar-rename-input { background:#203663; border-color:#5875b4; color:#f0f5ff;}
+:root[data-theme="dark"] .chat-topbar-rename-input:focus { border-color:#8c73ff; box-shadow:0 0 0 2px rgba(140,115,255,0.25);}
+:root[data-theme="dark"] .chat-topbar-action-btn { background:#2e4475; color:#c9d8fa;}
+:root[data-theme="dark"] .chat-topbar-action-btn:hover { background:#3c5793; color:#fff;}
 :root[data-theme="dark"] .chat-status { color:#aec0db;}
 :root[data-theme="dark"] .chat-welcome h2 { color:#f0f5ff;}
 :root[data-theme="dark"] .chat-welcome p { color:#b4c2dc;}

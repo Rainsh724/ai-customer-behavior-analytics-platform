@@ -14,6 +14,7 @@ user_behavior_logs, comments (+ embedded_comment با pgvector), comment_aspects
 from __future__ import annotations
 
 import os
+import time
 import logging
 from contextlib import contextmanager
 from typing import Any, Iterator
@@ -29,7 +30,7 @@ class DBConfig:
     DB_NAME = os.getenv("DB_NAME", "postgres")
     # کاربر read-only مخصوص لایه LLM/آنالیتیکس -- نه superuser
     DB_USER = os.getenv("DB_READONLY_USER", "postgres")
-    DB_PASSWORD = os.getenv("DB_READONLY_PASSWORD", "HiddenPatern")
+    DB_PASSWORD = os.getenv("DB_READONLY_PASSWORD", "")
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = os.getenv("DB_PORT", "5432")
 
@@ -82,8 +83,11 @@ def run_readonly_query(sql: str, params: tuple | None = None) -> list[dict[str, 
     """
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            t_sql0 = time.time()
             cur.execute(sql, params)
             rows = cur.fetchall()
+            sql_duration = time.time() - t_sql0
+            print(f"  ⚡ [POSTGRES QUERY TIME]: {sql_duration:.3f}s ({len(rows)} rows)")
             return [dict(r) for r in rows]
 
 

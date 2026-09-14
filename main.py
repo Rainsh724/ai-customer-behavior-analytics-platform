@@ -809,6 +809,7 @@ def _prepare_conversation(
 
 
 def run(question, chat_id=None, history=None) -> dict[str, Any]:
+    t_req_start = time.time()
     messages, conversation_context, current_turn_index = _prepare_conversation(question, chat_id, history)
 
     graph = get_graph()
@@ -828,6 +829,11 @@ def run(question, chat_id=None, history=None) -> dict[str, Any]:
         memory_store.log_evaluation(chat_id, question, result.get("validation", {}), turn_index=current_turn_index)
     except Exception as exc:
         logger.warning("log_evaluation failed: %s", exc)
+
+    total_req_time = time.time() - t_req_start
+    print(f"\n==========================================")
+    print(f"🏁 [TOTAL REQUEST TIME]: {total_req_time:.2f}s")
+    print(f"==========================================\n")
 
     return result
 
@@ -870,6 +876,7 @@ def _resolve_step_events(node_name, node_output, prev_sub_trace_len):
 
 
 def run_stream(question: str, chat_id: str | None = None, history: list[dict[str, Any]] | None = None):
+    t_stream_start = time.time()
     messages, conversation_context, current_turn_index = _prepare_conversation(question, chat_id, history)
 
     graph = get_graph()
@@ -909,6 +916,11 @@ def run_stream(question: str, chat_id: str | None = None, history: list[dict[str
         if entry.get("tool") == "tool_chart" and entry.get("ok") and entry.get("chart_data"):
             chart = entry["chart_data"]
             break
+
+    total_stream_time = time.time() - t_stream_start
+    print(f"\n==========================================")
+    print(f"🏁 [TOTAL REQUEST TIME]: {total_stream_time:.2f}s")
+    print(f"==========================================\n")
 
     yield {"type": "final", "answer": result.get("final_answer"), "chart": chart, "errors": result.get("errors") or []}
 

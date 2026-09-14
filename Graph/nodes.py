@@ -1,6 +1,7 @@
 ## PATH: app/graph/nodes.py
 from __future__ import annotations
 import os
+import time
 import functools
 import json
 import logging
@@ -385,12 +386,14 @@ def sub_tools_node(
         print("ARGS:", arguments)
         print("-----------------------------------\n")
 
+        t_sub_tool0 = time.time()
         result = execute_tool_call(
             name,
             arguments,
         )
+        sub_tool_duration = time.time() - t_sub_tool0
 
-        print("\n----- SUB-QUESTION TOOL RESULT -----")
+        print(f"\n----- SUB-QUESTION TOOL RESULT ({name} | ⏱️ {sub_tool_duration:.2f}s) -----")
         print(result)
         print("-------------------------------------\n")
 
@@ -1095,10 +1098,13 @@ def agent_node(state: GraphState) -> dict[str, Any]:
     # مشترکه).
     llm_messages = _build_bounded_llm_messages(messages, turn_control_messages)
 
+    t_llm0 = time.time()
     response = call_llm_with_tools(
         llm_messages,
         TOOL_DEFINITIONS,
     )
+    llm_duration = time.time() - t_llm0
+    print(f"\n⏱️ [AGENT LLM TIME]: {llm_duration:.2f}s (Round {iterations + 1})")
 
     return {
         "messages": [response],
@@ -1312,9 +1318,11 @@ def tools_node(state: GraphState) -> dict[str, Any]:
         print("ARGS:", arguments)
         print("=====================\n")
 
+        t_tool0 = time.time()
         result = execute_tool_call(name, arguments)
+        tool_duration = time.time() - t_tool0
 
-        print("\n===== TOOL RESULT =====")
+        print(f"\n===== TOOL RESULT ({name} | ⏱️ {tool_duration:.2f}s) =====")
         print(result)
         print("=======================\n")
 

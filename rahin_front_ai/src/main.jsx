@@ -10,7 +10,7 @@ import {
   Sun, Moon, Sparkles, ArrowUpLeft, ShieldCheck, TrendingUp, ShoppingCart,
   Eye, Star, Mail, RefreshCw, Menu, X, BrainCircuit, BookOpen,
   Send, Paperclip, BarChart3, Target, CircleHelp, Bot, Gem, UserRoundSearch, Pin, Plus, MoreHorizontal, MessageCircle, Clock3, Trash2 as TrashIcon,
-  Layers3, Gauge, Headphones
+  Layers3, Gauge, Headphones, Pencil, Check
 } from "lucide-react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -453,6 +453,8 @@ function Assistant() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState("");
+  const [topbarEditing, setTopbarEditing] = useState(false);
+  const [topbarTitle, setTopbarTitle] = useState("");
 
   const persist = (next) => {
     setSessions(next);
@@ -486,6 +488,10 @@ function Assistant() {
     }
   }, []);
 
+  useEffect(() => {
+    setTopbarEditing(false);
+  }, [activeId]);
+
   const active = sessions.find(s => s.id === activeId) || sessions[0];
   const messages = active?.messages || [];
   const pinned = sessions.filter(s => s.pinned).sort((a,b) => b.updatedAt - a.updatedAt);
@@ -514,6 +520,14 @@ function Assistant() {
   }
 };
 
+  const saveTopbarTitle = () => {
+    const trimmed = topbarTitle.trim();
+    if (trimmed && active && trimmed !== active.title) {
+      updateSession(active.id, { title: trimmed });
+    }
+    setTopbarEditing(false);
+  };
+
   async function ask(question) {
     const q = question.trim();
     if (!q || !active) return;
@@ -521,7 +535,7 @@ function Assistant() {
     const now = Date.now();
     const userMessage = { role: "user", text: q, at: now };
     const current = sessions.find(s => s.id === active.id);
-    const title = current?.messages?.length ? current.title : (q.length > 38 ? `${q.slice(0, 38)}…` : q);
+    const title = (current?.messages?.length || (current?.title && current?.title !== "گفت‌وگوی جدید")) ? current.title : (q.length > 38 ? `${q.slice(0, 38)}…` : q);
     const withUser = sessions.map(s => s.id === active.id ? { ...s, title, messages: [...s.messages, userMessage], updatedAt: now } : s);
     persist(withUser);
  
@@ -558,18 +572,51 @@ function Assistant() {
           <button className="new-chat-btn" onClick={createChat}><Plus /> گفت‌وگوی جدید</button>
           <div className="chat-sidebar-section">
             <div className="chat-sidebar-label"><Pin /> پین‌شده‌ها</div>
-            {pinned.length ? pinned.map(s => <ChatSessionItem key={s.id} session={s} active={s.id === activeId} onSelect={() => setActiveId(s.id)} onPin={() => togglePin(s.id)} onDelete={() => deleteChat(s.id)} />) : <div className="chat-sidebar-empty">گفت‌وگوی پین‌شده‌ای ندارید.</div>}
+            {pinned.length ? pinned.map(s => <ChatSessionItem key={s.id} session={s} active={s.id === activeId} onSelect={() => setActiveId(s.id)} onPin={() => togglePin(s.id)} onDelete={() => deleteChat(s.id)} onRename={(newTitle) => updateSession(s.id, { title: newTitle })} />) : <div className="chat-sidebar-empty">گفت‌وگوی پین‌شده‌ای ندارید.</div>}
           </div>
           <div className="chat-sidebar-section recent-section">
             <div className="chat-sidebar-label"><Clock3 /> گفت‌وگوهای اخیر</div>
-            {recent.map(s => <ChatSessionItem key={s.id} session={s} active={s.id === activeId} onSelect={() => setActiveId(s.id)} onPin={() => togglePin(s.id)} onDelete={() => deleteChat(s.id)} />)}
+            {recent.map(s => <ChatSessionItem key={s.id} session={s} active={s.id === activeId} onSelect={() => setActiveId(s.id)} onPin={() => togglePin(s.id)} onDelete={() => deleteChat(s.id)} onRename={(newTitle) => updateSession(s.id, { title: newTitle })} />)}
           </div>
         </aside>
 
         <div className="chat-main">
           <div className="chat-topbar">
             <div className="chat-topbar-badge"><Bot /></div>
-            <div className="chat-topbar-info"><strong>{active?.title || "گفت‌وگوی جدید"}</strong></div>
+            <div className="chat-topbar-info">
+              {topbarEditing ? (
+                <div className="chat-topbar-edit-wrap">
+                  <input
+                    className="chat-topbar-rename-input"
+                    value={topbarTitle}
+                    onChange={e => setTopbarTitle(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") saveTopbarTitle();
+                      else if (e.key === "Escape") setTopbarEditing(false);
+                    }}
+                    autoFocus
+                  />
+                  <button className="chat-topbar-action-btn" title="ذخیره" onClick={saveTopbarTitle}><Check /></button>
+                  <button className="chat-topbar-action-btn" title="انصراف" onClick={() => setTopbarEditing(false)}><X /></button>
+                </div>
+              ) : (
+                <div className="chat-topbar-title-wrap">
+                  <strong>{active?.title || "گفت‌وگوی جدید"}</strong>
+                  {active && (
+                    <button
+                      className="chat-topbar-edit-btn"
+                      title="ویرایش نام گفت‌وگو"
+                      onClick={() => {
+                        setTopbarTitle(active.title || "");
+                        setTopbarEditing(true);
+                      }}
+                    >
+                      <Pencil />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="chat-status"><i /> آنلاین</div>
           </div>
 
@@ -635,15 +682,73 @@ function Assistant() {
   );
 }
 
-function ChatSessionItem({ session, active, onSelect, onPin, onDelete }) {
-  return <div className={`chat-session ${active ? "active" : ""}`} onClick={onSelect}>
-    <div className="chat-session-icon"><MessageCircle /></div>
-    <div className="chat-session-text"><strong>{session.title}</strong></div>
-    <div className="chat-session-actions">
-      <button title={session.pinned ? "برداشتن پین" : "پین کردن"} onClick={e => { e.stopPropagation(); onPin(); }}><Pin /></button>
-      <button title="حذف" onClick={e => { e.stopPropagation(); onDelete(); }}><TrashIcon /></button>
+function ChatSessionItem({ session, active, onSelect, onPin, onDelete, onRename }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(session.title);
+
+  useEffect(() => {
+    if (!isEditing) setEditTitle(session.title);
+  }, [session.title, isEditing]);
+
+  const handleSave = (e) => {
+    if (e) e.stopPropagation();
+    const trimmed = editTitle.trim();
+    if (trimmed && trimmed !== session.title) {
+      onRename(trimmed);
+    } else {
+      setEditTitle(session.title);
+    }
+    setIsEditing(false);
+  };
+
+  const handleCancel = (e) => {
+    if (e) e.stopPropagation();
+    setEditTitle(session.title);
+    setIsEditing(false);
+  };
+
+  const startEditing = (e) => {
+    e.stopPropagation();
+    setEditTitle(session.title);
+    setIsEditing(true);
+  };
+
+  return (
+    <div className={`chat-session ${active ? "active" : ""} ${isEditing ? "editing" : ""}`} onClick={isEditing ? undefined : onSelect}>
+      <div className="chat-session-icon"><MessageCircle /></div>
+      {isEditing ? (
+        <div className="chat-session-text" onClick={e => e.stopPropagation()}>
+          <input
+            className="chat-session-rename-input"
+            value={editTitle}
+            onChange={e => setEditTitle(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter") handleSave(e);
+              else if (e.key === "Escape") handleCancel(e);
+            }}
+            autoFocus
+            maxLength={80}
+          />
+        </div>
+      ) : (
+        <div className="chat-session-text"><strong>{session.title}</strong></div>
+      )}
+      <div className="chat-session-actions">
+        {isEditing ? (
+          <>
+            <button className="save-btn" title="ذخیره" onClick={handleSave}><Check /></button>
+            <button className="cancel-btn" title="انصراف" onClick={handleCancel}><X /></button>
+          </>
+        ) : (
+          <>
+            <button title="ویرایش نام" onClick={startEditing}><Pencil /></button>
+            <button title={session.pinned ? "برداشتن پین" : "پین کردن"} onClick={e => { e.stopPropagation(); onPin(); }}><Pin /></button>
+            <button title="حذف" onClick={e => { e.stopPropagation(); onDelete(); }}><TrashIcon /></button>
+          </>
+        )}
+      </div>
     </div>
-  </div>;
+  );
 }
 
 function CustomerIntelligence() {
