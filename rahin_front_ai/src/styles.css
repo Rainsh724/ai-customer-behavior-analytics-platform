@@ -964,7 +964,30 @@ button, input, .quick-card, .metric, .chart-card, .table-card, .settings-card,
 .composer-large { padding:12px 14px 14px; background:rgba(255,255,255,.52);}
 .composer-large input { background:#f2f6fd; border:1px solid rgba(102,130,194,.10); min-height:45px; color:#263a70;}
 .composer-large .send:disabled { opacity:.55; cursor:not-allowed;}
-
+.composer-large .composer-textarea {
+  flex: 1;
+  border: 1px solid rgba(102,130,194,.10);
+  outline: 0;
+  background: #f2f6fd;
+  border-radius: 17px;
+  padding: 16px 18px;
+  color: #263a70;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.8;
+  min-height: 58px;
+  max-height: 160px;
+  resize: none;
+  overflow-y: auto;
+}
+:root[data-theme="dark"] .composer-large .composer-textarea {
+  background: #2c426b;
+  color: #f0f4ff;
+  border-color: rgba(164,181,225,.16);
+}
+:root[data-theme="dark"] .composer-large .composer-textarea::placeholder {
+  color: #9caecb;
+}
 :root[data-theme="dark"] .chat-sidebar {
   background:linear-gradient(180deg,#1b315b 0%,#1e365f 55%,#292d55 100%);
   border-color:rgba(151,177,231,.17);}
@@ -1773,3 +1796,8 @@ button, input, .quick-card, .metric, .chart-card, .table-card, .settings-card,
   border-color: rgba(255, 130, 130, .2);
   color: #ffb0b0;
 }
+
+.send.stop-btn {
+  background: linear-gradient(135deg,#ef4444,#dc2626) !important;
+}
+.send.stop-btn svg { width: 16px; height: 16px; }
