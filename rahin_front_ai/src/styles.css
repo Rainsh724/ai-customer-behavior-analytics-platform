@@ -1719,94 +1719,23 @@ button, input, .quick-card, .metric, .chart-card, .table-card, .settings-card,
 /* =========================
    RETRY BUTTON
 ========================= */
-
-.retry-message-btn {
-  width: 32px;
-  height: 32px;
-
-  flex: 0 0 32px;
-
-  padding: 0;
-
-  border: 1px solid #e4e8f4;
-  border-radius: 8px;
-
-  background: #fff;
-  color: #71809f;
-
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  cursor: pointer;
-
-  transition:
-    color .2s ease,
-    border-color .2s ease,
-    background .2s ease,
-    transform .2s ease;
-}
-
-.retry-message-btn:hover {
-  color: #7251ef;
-  border-color: #cfc7ff;
-  background: #faf9ff;
-  transform: rotate(-15deg);
-}
-
-.retry-message-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.retry-message-btn:disabled {
-  opacity: .5;
-  cursor: not-allowed;
-}
-
-
+.retry-message-btn {width: 32px;
+  height: 32px;flex: 0 0 32px;padding: 0;border: 1px solid #e4e8f4;border-radius: 8px;background: #fff;color: #71809f;display: inline-flex;
+  align-items: center;justify-content: center;cursor: pointer;transition:color .2s ease,border-color .2s ease,background .2s ease,transform .2s ease;}
+.retry-message-btn:hover {color: #7251ef;border-color: #cfc7ff;background: #faf9ff;transform: rotate(-15deg);}
+.retry-message-btn svg {width: 16px;height: 16px;}
+.retry-message-btn:disabled {opacity: .5;cursor: not-allowed;}
 /* =========================
    LOADING MESSAGE
 ========================= */
 
-.message-loading-content {
-  display: flex;
-  align-items: center;
-  min-height: 25px;
-}
-
-.message-loading .typing-dots {
-  color: #7885a5;
-}
-
-
-/* =========================
-   DARK MODE
-========================= */
-
+.message-loading-content {display: flex;align-items: center;min-height: 25px;}
+.message-loading .typing-dots {color: #7885a5;}
 :root[data-theme="dark"] .message-copy-btn,
-:root[data-theme="dark"] .retry-message-btn {
-  background: #1b2e52;
-  border-color: rgba(153,177,221,.18);
-  color: #aab9d5;
-}
+:root[data-theme="dark"] .retry-message-btn {background: #1b2e52;border-color: rgba(153,177,221,.18);color: #aab9d5;}
 
-:root[data-theme="dark"] .message-error-box {
-  background: rgba(130, 50, 50, .12);
-  border-color: rgba(255, 130, 130, .2);
-  color: #ffb0b0;
-}
+:root[data-theme="dark"] .message-error-box {background: rgba(130, 50, 50, .12);border-color: rgba(255, 130, 130, .2);color: #ffb0b0;}
 
-.send.stop-btn {
-  background: linear-gradient(135deg,#ef4444,#dc2626) !important;
-}
+.send.stop-btn {background: linear-gradient(135deg,#ef4444,#dc2626) !important;}
 .send.stop-btn svg { width: 16px; height: 16px; }
-.login-error {
-  color: #dc2626;
-  font-size: 12px;
-  background: rgba(220,38,38,.08);
-  border: 1px solid rgba(220,38,38,.18);
-  border-radius: 10px;
-  padding: 9px 13px;
-  margin: -6px 0 10px;
-}
+.login-error {color: #dc2626;font-size: 12px;background: rgba(220,38,38,.08);border: 1px solid rgba(220,38,38,.18);border-radius: 10px;padding: 9px 13px;margin: -6px 0 10px;}
