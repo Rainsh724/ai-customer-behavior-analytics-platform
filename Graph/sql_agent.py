@@ -153,6 +153,10 @@ kpi.global_funnel(total_views NUMERIC, total_carts NUMERIC, total_purchases NUME
 --   NEVER filter total_views > 20 or > 50 or > 100 -- it will return 0 rows!
 -- * Product Purchases: Max purchases is 9 (avg: 1.3, p90: 2).
 --   Top sellers are products with total_purchases >= 2 or >= 3. Never filter purchases > 10!
+-- * Price Segmentation (Cheap vs Expensive):
+--   NEVER use AVG(price) to segment cheap vs expensive products because retail prices are heavily right-skewed.
+--   ALWAYS use Median: PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price) to split into two halves (50/50),
+--   or use Quartiles/NTILE(3 or 4) for Budget, Mid-range, and Premium tiers.
 -- * Bundles / Co-purchases: Most product pairs are co-purchased 1 time per session.
 --   Always use HAVING COUNT(*) >= 1 (never >= 2).
 -- * Customer Churn & Segmentation: Query kpi.ml_user_clusters where cluster_name = 'churned_customers', or kpi.user_segments.
