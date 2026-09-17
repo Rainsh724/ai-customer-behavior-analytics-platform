@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import remarkGfm from "remark-gfm";
 
@@ -9,7 +9,7 @@ import {
   Boxes, Info, Phone, Settings, LogOut, ChevronLeft, ChevronDown, Download,
   Sun, Moon, Sparkles, ArrowUpLeft, ShieldCheck, TrendingUp, ShoppingCart,
   Eye, Star, Mail, RefreshCw, Menu, X, BrainCircuit, BookOpen,
-  Send, Copy,   Paperclip, BarChart3, Target, CircleHelp, Bot, Gem, UserRoundSearch, Pin, Plus, MoreHorizontal, MessageCircle, Clock3, Trash2 as TrashIcon,
+  Send, Copy, Square ,  Paperclip, BarChart3, Target, CircleHelp, Bot, Gem, UserRoundSearch, Pin, Plus, MoreHorizontal, MessageCircle, Clock3, Trash2 as TrashIcon,
   Layers3, Gauge, Headphones, Pencil, Check
 } from "lucide-react";
 import {
@@ -39,7 +39,7 @@ async function json(path, options = {}) {
   return (await api(path, options)).json();
 }
 
-async function streamChat(message, sessionId, onStep, onFinal) {
+async function streamChat(message, sessionId, onStep, onFinal, signal) {
   const response = await fetch(`${API_BASE}/api/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -47,6 +47,7 @@ async function streamChat(message, sessionId, onStep, onFinal) {
       message,
       session_id: sessionId
     }),
+    signal,
   });
 
   if (!response.ok) {
@@ -119,11 +120,17 @@ const menu = [
   ["settings", "تنظیمات", Settings]
 ];
 
+
 function App() {
   const [authenticated, setAuthenticated] = useState(localStorage.getItem("hooshyar-auth") === "1");
   const [page, setPage] = useState("home");
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "light");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [assistantMounted, setAssistantMounted] = useState(false);
+
+  useEffect(() => {
+    if (page === "assistant") setAssistantMounted(true);
+  }, [page]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -158,7 +165,11 @@ function App() {
         <div className="content">
           {page === "home" && <Home go={go} />}
           {page === "dashboard" && <Dashboard />}
-          {page === "assistant" && <Assistant />}
+          {assistantMounted && (
+            <div style={{ display: page === "assistant" ? "block" : "none" }}>
+              <Assistant />
+            </div>
+          )}
           {page === "brand" && <BrandIntelligence />}
           {page === "customers" && <CustomerIntelligence />}
           {page === "categories" && <CategoryIntelligence />}
@@ -381,8 +392,12 @@ function Dashboard() {
                   textAlign: "right",
                   borderRadius: 12,
                   border: "1px solid #e5e9f7",
-                  boxShadow: "0 10px 25px rgba(60,70,140,.15)"
+                  boxShadow: "0 10px 25px rgba(60,70,140,.15)",
+                  background: "#ffffff",
+                  color: "#1e2a55" 
                 }}
+                labelStyle={{ color: "#1e2a55", fontWeight: 700 }}
+                itemStyle={{ color: "#1e2a55" }}
               />
 
               <Legend />
@@ -493,8 +508,12 @@ function ChartBlock({ title, data, keyName, valueKey, empty }) {
                   background: "#ffffff",
                   maxWidth: 380,
                   whiteSpace: "normal",
-                  overflowWrap: "anywhere"
+                  overflowWrap: "anywhere",
+                  color: "#1e2a55"
                 }}
+                labelStyle={{ color: "#1e2a55", fontWeight: 700 }}
+                itemStyle={{ color: "#1e2a55" }}
+                
                 formatter={(value) => [
                   Number(value).toLocaleString("fa-IR"),
                   "تعداد"
@@ -597,6 +616,7 @@ function Assistant() {
   const [activeId, setActiveId] = useState(null);
   const [input, setInput] = useState("");
   const [loadingSessions, setLoadingSessions] = useState({}); // { [sessionId]: "متن مرحله فعلی" }
+  const abortControllersRef = useRef({}); // { [sessionId]: AbortController }
   const [topbarEditing, setTopbarEditing] = useState(false);
   const [topbarTitle, setTopbarTitle] = useState("");
 
@@ -769,6 +789,9 @@ function Assistant() {
 
     persist(withMessage);
 
+    const controller = new AbortController();
+    abortControllersRef.current[sessionId] = controller;
+
     setLoadingSessions(prev => ({
       ...prev,
       [sessionId]: "در حال شروع..."
@@ -857,7 +880,8 @@ function Assistant() {
           );
 
           persist(next);
-        }
+        } ,
+        controller.signal
       );
     }
 
@@ -865,6 +889,31 @@ function Assistant() {
     // ERROR
     // =========================
     catch (error) {
+            if (error.name === "AbortError") {
+        const latestNow = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        const sessionNow = latestNow.find(s => s.id === sessionId);
+        if (sessionNow) {
+          let msgs = [...(sessionNow.messages || [])];
+          const lastAssistantIndex = msgs.map(m => m.role).lastIndexOf("assistant");
+          if (lastAssistantIndex !== -1 && msgs[lastAssistantIndex].status === "loading") {
+            msgs[lastAssistantIndex] = {
+              ...msgs[lastAssistantIndex],
+              text: "پاسخ متوقف شد.",
+              status: "success",
+              error: null,
+              at: Date.now()
+            };
+          }
+          persist(latestNow.map(s => s.id === sessionId ? { ...s, messages: msgs, updatedAt: Date.now() } : s));
+        }
+        delete abortControllersRef.current[sessionId];
+        setLoadingSessions(prev => {
+          const next = { ...prev };
+          delete next[sessionId];
+          return next;
+        });
+        return;
+      }
       const latestNow = JSON.parse(
         localStorage.getItem(STORAGE_KEY) || "[]"
       );
@@ -940,7 +989,10 @@ function Assistant() {
       });
     }
   }
-  
+  const stopGeneration = (sessionId) => {
+    const controller = abortControllersRef.current[sessionId];
+    if (controller) controller.abort();
+  };
 
   const copyMessage = async (text) => {
     if (!text) return;
@@ -1097,17 +1149,30 @@ function Assistant() {
                                 className="retry-message-btn"
                                 onClick={() => retryMessage(m)}
                                 disabled={!!loadingSessions[active?.id]}title="تلاش مجدد"><RefreshCw /></button></div>)}
-                          {!isError &&
-                            m.status !== "loading" &&
-                            m.text && (
-                              <div className="message-actions">
+                          
+                          {m.chart && (<ChatChart chart={m.chart} />)}
+                          {isError && (
+                            <div className="message-error-box">
+                              <span>{m.error || "پاسخی از سرویس دریافت نشد."}</span>
+                            </div>
+                          )}
+                          {m.status !== "loading" && (
+                            <div className="message-actions">
+                              {m.text && (
                                 <button
                                   className="message-copy-btn"
-                                  onClick={() =>
-                                    copyMessage(cleanText || m.text)
-                                  }
+                                  onClick={() => copyMessage(cleanText || m.text)}
                                   title="کپی پاسخ"
-                                ><Copy /></button></div>)}</>)}</>) : (<><div className="message-user-text">{m.text}</div>
+                                ><Copy /></button>
+                              )}
+                              <button
+                                className="retry-message-btn"
+                                onClick={() => retryMessage(m)}
+                                disabled={!!loadingSessions[active?.id]}
+                                title="تلاش مجدد"
+                              ><RefreshCw /></button>
+                            </div>
+                          )}</>)}</>) : (<><div className="message-user-text">{m.text}</div>
                       {m.text && (<div className="message-actions">
                           <button
                             className="message-copy-btn"
@@ -1117,17 +1182,30 @@ function Assistant() {
           <div className="composer composer-large">
             <div className="composer-star">✦</div>
 
-            <input
+            <textarea
+              className="composer-textarea"
               value={input}
               onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && ask(input)}
+              onKeyDown={e => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  ask(input);
+                }
+              }}
               placeholder="سؤال مدیریتی خود را بنویسید..."
+              rows={1}
             />
 
-            <button
-              className="send"
-              onClick={() => ask(input)}
-              disabled={!!(active && loadingSessions[active.id])}><Send /></button></div></div></div></section>);}
+            {active && loadingSessions[active.id] ? (
+              <button
+                className="send stop-btn"
+                onClick={() => stopGeneration(active.id)}
+                title="لغو درخواست"><Square /></button>
+            ) : (
+              <button
+                className="send"
+                onClick={() => ask(input)}><Send /></button>
+            )}</div></div></div></section>);}
 
 function ChatSessionItem({ session, active, onSelect, onPin, onDelete, onRename }) {
   const [isEditing, setIsEditing] = useState(false);
