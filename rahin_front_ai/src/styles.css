@@ -1801,3 +1801,12 @@ button, input, .quick-card, .metric, .chart-card, .table-card, .settings-card,
   background: linear-gradient(135deg,#ef4444,#dc2626) !important;
 }
 .send.stop-btn svg { width: 16px; height: 16px; }
+.login-error {
+  color: #dc2626;
+  font-size: 12px;
+  background: rgba(220,38,38,.08);
+  border: 1px solid rgba(220,38,38,.18);
+  border-radius: 10px;
+  padding: 9px 13px;
+  margin: -6px 0 10px;
+}

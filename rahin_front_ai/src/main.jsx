@@ -186,10 +186,30 @@ function App() {
 function Login({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
-    if (username.trim() && password.trim()) onLogin();
+    if (!username.trim() || !password.trim()) return;
+    setError("");
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+      if (!res.ok) {
+        setError("نام کاربری یا رمز عبور اشتباه است.");
+        return;
+      }
+      onLogin();
+    } catch {
+      setError("اتصال به سرویس برقرار نشد.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -214,7 +234,7 @@ function Login({ onLogin }) {
           <p>برای ورود، اطلاعات حساب خود را وارد کنید.</p>
           <label>نام کاربری<input value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" /></label>
           <label>رمز عبور<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" /></label>
-          <button className="login-submit" type="submit">ورود به سامانه <ChevronLeft /></button>
+          <button className="login-submit" type="submit" disabled={submitting}>{submitting ? "در حال ورود..." : "ورود به سامانه"} <ChevronLeft /></button>
         </form>
       </section>
     </main>
@@ -513,7 +533,7 @@ function ChartBlock({ title, data, keyName, valueKey, empty }) {
                 }}
                 labelStyle={{ color: "#1e2a55", fontWeight: 700 }}
                 itemStyle={{ color: "#1e2a55" }}
-                
+
                 formatter={(value) => [
                   Number(value).toLocaleString("fa-IR"),
                   "تعداد"

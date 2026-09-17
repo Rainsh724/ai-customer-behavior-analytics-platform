@@ -29,6 +29,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 import memory_store
+import auth_store
 from Graph.dataset_time import get_reference_date
 from Graph.db import run_readonly_query
 from Graph.llm_client import preload_embedding_model
@@ -102,6 +103,11 @@ def on_startup() -> None:
         memory_store.ensure_eval_schema()
     except Exception:
         logger.exception("ensure_eval_schema شکست خورد")
+    
+    try:
+        auth_store.ensure_users_schema()
+    except Exception:
+        logger.exception("ensure_users_schema شکست خورد")
     # پیش‌بارگذاری کش صفحات داشبوردی -- تو یک ترد جدا تا startup سرور
     # رو معطل نکنه، ولی قبل از اینکه کاربری کلیک کنه شروع می‌شه.
     threading.Thread(target=_warm_all_caches, daemon=True).start()
@@ -119,7 +125,14 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     chart: dict | None = None
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
 
+
+class LoginResponse(BaseModel):
+    ok: bool
+    display_name: str | None = None
 
 # ------------------------------------------------------------------
 # Endpoint اصلی چت -- دقیقاً همان مسیر/قراردادی که main.jsx صدا می‌زند.
@@ -176,7 +189,18 @@ def delete_chat(session_id: str) -> dict:
 def health() -> dict:
     return {"status": "ok"}
 
+@app.post("/api/auth/login", response_model=LoginResponse)
+def login(payload: LoginRequest) -> LoginResponse:
+    try:
+        user = auth_store.verify_login(payload.username, payload.password)
+    except Exception:
+        logger.exception("بررسی لاگین برای username=%s شکست خورد", payload.username)
+        raise HTTPException(status_code=500, detail="خطا در بررسی اطلاعات ورود")
 
+    if not user:
+        raise HTTPException(status_code=401, detail="نام کاربری یا رمز عبور اشتباه است")
+
+    return LoginResponse(ok=True, display_name=user.get("display_name"))
 # ------------------------------------------------------------------
 # هوش برند -- کوئری مستقیم SQL (بدون عبور از LLM)، چون ساختار صفحه
 # ثابته و نیازی به تفسیر زبان طبیعی نداره.
