@@ -8,7 +8,7 @@ import logging
 
 from Graph.graph import get_graph
 from Graph.dataset_time import get_reference_date
-from Graph.llm_client import preload_embedding_model, call_llm_json
+from Graph.llm_client import preload_embedding_model, call_llm_json, token_tracker
 import memory_store
 
 logger = logging.getLogger(__name__)
@@ -820,6 +820,7 @@ def _prepare_conversation(
 
 
 def run(question, chat_id=None, history=None) -> dict[str, Any]:
+    token_tracker.reset_request()
     t_req_start = time.time()
     messages, conversation_context, current_turn_index = _prepare_conversation(question, chat_id, history)
 
@@ -842,8 +843,13 @@ def run(question, chat_id=None, history=None) -> dict[str, Any]:
         logger.warning("log_evaluation failed: %s", exc)
 
     total_req_time = time.time() - t_req_start
+    cum_usage = token_tracker.get_cumulative()
     print(f"\n==========================================")
     print(f"[TOTAL REQUEST TIME]: {total_req_time:.2f}s")
+    print(
+        f"🪙 [TOTAL TOKENS]: {cum_usage['total_tokens']:,} "
+        f"(Prompt: {cum_usage['prompt_tokens']:,} | Output: {cum_usage['completion_tokens']:,})"
+    )
     print(f"==========================================\n")
 
     return result
@@ -887,6 +893,7 @@ def _resolve_step_events(node_name, node_output, prev_sub_trace_len):
 
 
 def run_stream(question: str, chat_id: str | None = None, history: list[dict[str, Any]] | None = None):
+    token_tracker.reset_request()
     t_stream_start = time.time()
     messages, conversation_context, current_turn_index = _prepare_conversation(question, chat_id, history)
 
@@ -929,8 +936,13 @@ def run_stream(question: str, chat_id: str | None = None, history: list[dict[str
             break
 
     total_stream_time = time.time() - t_stream_start
+    cum_usage = token_tracker.get_cumulative()
     print(f"\n==========================================")
     print(f"[TOTAL REQUEST TIME]: {total_stream_time:.2f}s")
+    print(
+        f"🪙 [TOTAL TOKENS]: {cum_usage['total_tokens']:,} "
+        f"(Prompt: {cum_usage['prompt_tokens']:,} | Output: {cum_usage['completion_tokens']:,})"
+    )
     print(f"==========================================\n")
 
     yield {"type": "final", "answer": result.get("final_answer"), "chart": chart, "errors": result.get("errors") or []}

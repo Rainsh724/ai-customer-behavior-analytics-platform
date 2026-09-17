@@ -55,12 +55,69 @@ class LLMServiceError(Exception):
         self.original_exc = original_exc
 
 
+class TokenTracker:
+    """ردیابی دقیق توکن‌های ورودی، خروجی و کل برای هر تماس و مجموع درخواست."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.request_prompt_tokens = 0
+        self.request_completion_tokens = 0
+        self.request_total_tokens = 0
+        self.last_prompt_tokens = 0
+        self.last_completion_tokens = 0
+        self.last_total_tokens = 0
+
+    def record(self, usage: Any) -> None:
+        if usage is None:
+            return
+        prompt = getattr(usage, "prompt_tokens", 0) or 0
+        completion = getattr(usage, "completion_tokens", 0) or 0
+        total = getattr(usage, "total_tokens", 0) or (prompt + completion)
+
+        with self._lock:
+            self.last_prompt_tokens = prompt
+            self.last_completion_tokens = completion
+            self.last_total_tokens = total
+            self.request_prompt_tokens += prompt
+            self.request_completion_tokens += completion
+            self.request_total_tokens += total
+
+    def reset_request(self) -> None:
+        with self._lock:
+            self.request_prompt_tokens = 0
+            self.request_completion_tokens = 0
+            self.request_total_tokens = 0
+
+    def get_last(self) -> dict[str, int]:
+        with self._lock:
+            return {
+                "prompt_tokens": self.last_prompt_tokens,
+                "completion_tokens": self.last_completion_tokens,
+                "total_tokens": self.last_total_tokens,
+            }
+
+    def get_cumulative(self) -> dict[str, int]:
+        with self._lock:
+            return {
+                "prompt_tokens": self.request_prompt_tokens,
+                "completion_tokens": self.request_completion_tokens,
+                "total_tokens": self.request_total_tokens,
+            }
+
+
+token_tracker = TokenTracker()
+
+
+LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "75.0"))
+
+
 def get_client() -> OpenAI:
     global _client
     if _client is None:
         _client = OpenAI(
             api_key=os.environ["API_KEY"],
             base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            timeout=LLM_TIMEOUT,
         )
     return _client
 
@@ -162,6 +219,7 @@ def call_llm_json(
         )
 
     resp = _call_with_rate_limit_retry(_do_call)
+    token_tracker.record(getattr(resp, "usage", None))
     content = resp.choices[0].message.content or "{}"
     return json.loads(content)
 
@@ -247,6 +305,7 @@ def call_llm_with_tools(
 
     usage = getattr(resp, "usage", None)
     if usage is not None:
+        token_tracker.record(usage)
         cached = 0
         details = getattr(usage, "prompt_tokens_details", None)
         if details is not None:

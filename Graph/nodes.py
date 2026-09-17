@@ -9,7 +9,7 @@ from os import name
 from typing import Any, Callable
 
 from .state import GraphState
-from .llm_client import call_llm_with_tools, call_llm_json, LLMServiceError
+from .llm_client import call_llm_with_tools, call_llm_json, LLMServiceError, token_tracker
 from .tools import TOOL_DEFINITIONS, execute_tool_call
 from .audit import validate_answer, correct_answer as _real_correct_answer, CORRECTION_THRESHOLD
 from .dataset_time import get_reference_date
@@ -547,9 +547,15 @@ def sub_finalize_node(
         ),
     }
 
+    extra_ctrl = []
+    sub_evidence = _build_evidence_summary(state.get("sub_question_tool_trace", []))
+    if sub_evidence is not None:
+        extra_ctrl.append(sub_evidence)
+    extra_ctrl.append(forced_control_message)
+
     forced_messages = [
-        *messages,
-        forced_control_message,
+        *messages[-8:],
+        *extra_ctrl,
     ]
 
     forced_response = call_llm_with_tools(
@@ -994,9 +1000,66 @@ def _dataset_time_control_message() -> dict[str, Any]:
     }
 
 
+def _format_trace_summary_for_evidence(tool_name: str, summary: Any) -> str:
+    """خلاصه‌ی خروجی هر ابزار موفق را به یک خط خوانا و فوق‌العاده کم‌توکن تبدیل می‌کند."""
+    if isinstance(summary, str):
+        try:
+            parsed = json.loads(summary)
+        except Exception:
+            parsed = summary
+    else:
+        parsed = summary
+
+    if isinstance(parsed, dict):
+        if "rows" in parsed and isinstance(parsed["rows"], list):
+            rows = parsed["rows"]
+            row_count = parsed.get("row_count", len(rows))
+            rows_str = json.dumps(rows[:8], ensure_ascii=False, default=str)
+            return f"{row_count} رکورد: {rows_str}"
+        if "representative_comments" in parsed or "top_keywords" in parsed:
+            kw = parsed.get("top_keywords", [])[:5]
+            hits = parsed.get("hit_count", 0)
+            bname = parsed.get("brand_name")
+            pname = parsed.get("product_title")
+            entity = f" (برند: {bname})" if bname else (f" (محصول: {pname})" if pname else "")
+            return f"{hits} نظر مرتبط{entity} | کلمات کلیدی: {', '.join(kw)}"
+        if "summary" in parsed:
+            s = str(parsed["summary"])
+            return s[:300] if len(s) > 300 else s
+
+    text = str(summary)
+    return text[:250] + "..." if len(text) > 250 else text
+
+
+def _build_evidence_summary(tool_trace: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+    """
+    از ابزارهای با موفقیت اجرا شده (ok=True) در tool_trace، یک کپسول شواهد
+    فشرده و تمیز برای LLM تولید می‌کند. تمام ارورها و کوئری‌های ردشده فیلتر می‌شوند.
+    """
+    if not tool_trace:
+        return None
+
+    valid_traces = [t for t in tool_trace if t.get("ok")]
+    if not valid_traces:
+        return None
+
+    lines = ["[شواهد و داده‌های معتبر استخراج‌شده از پایگاه داده تا این لحظه]:"]
+    for i, t in enumerate(valid_traces, 1):
+        tool_name = t.get("tool", "")
+        summary = t.get("summary", "")
+        formatted = _format_trace_summary_for_evidence(tool_name, summary)
+        lines.append(f"{i}. ابزار {tool_name}: {formatted}")
+
+    return {
+        "role": "system",
+        "content": "\n".join(lines),
+    }
+
+
 def _build_bounded_llm_messages(
     messages: list[dict[str, Any]],
     turn_control_messages: list[dict[str, Any]],
+    max_recent_messages: int = 4,
 ) -> list[dict[str, Any]]:
     """
     از تاریخچه‌ی کامل state["messages"] (که فقط رشد می‌کنه) یک لیست
@@ -1005,7 +1068,7 @@ def _build_bounded_llm_messages(
       - فقط اولین پیام سیستمی (پرامپت اصلی) نگه داشته می‌شه.
       - سوال اولیه‌ی کاربر همیشه pin می‌شه (حتی اگه چند دور tool_call
         از تاریخچه‌ی اخیر بیرونش زده باشه).
-      - فقط ۴ پیام غیرسیستمیِ اخیر + پیام‌های کنترلیِ همین دور
+      - فقط max_recent_messages پیام غیرسیستمیِ اخیر + پیام‌های کنترلیِ همین دور
         (turn_control_messages) اضافه می‌شن.
       - در نهایت، مجموع حجم زیر MAX_LLM_MESSAGE_CHARS نگه داشته
         می‌شه (محافظت در برابر سقف TPM ارائه‌دهنده).
@@ -1030,7 +1093,7 @@ def _build_bounded_llm_messages(
         None,
     )
 
-    recent_messages = non_system_messages[-4:]
+    recent_messages = non_system_messages[-max_recent_messages:]
 
     pinned_messages: list[dict[str, Any]] = []
     if original_user_message is not None and original_user_message not in recent_messages:
@@ -1156,11 +1219,17 @@ def agent_node(state: GraphState) -> dict[str, Any]:
 
     turn_control_messages.append(_dataset_time_control_message())
 
-    # پرامپت اصلی همیشه حفظ می‌شه، سوال اولیه‌ی کاربر pin می‌شه، و کل
-    # لیست زیر سقف حجم TPM نگه داشته می‌شه -- نگاه کن به
-    # _build_bounded_llm_messages (این منطق بین agent_node و finalize_node
-    # مشترکه).
-    llm_messages = _build_bounded_llm_messages(messages, turn_control_messages)
+    # کپسول شواهد معتبر از ابزارهای موفق گذشته (در صورت وجود)
+    evidence_msg = _build_evidence_summary(state.get("tool_trace", []))
+    if evidence_msg is not None:
+        turn_control_messages.append(evidence_msg)
+
+    # در agent_node (حین کوئری زدن و اصلاح خطا) دقیقاً ۴ پیام اخیر ارسال می‌شود
+    llm_messages = _build_bounded_llm_messages(
+        messages,
+        turn_control_messages,
+        max_recent_messages=4,
+    )
 
     t_llm0 = time.time()
     response = call_llm_with_tools(
@@ -1168,7 +1237,11 @@ def agent_node(state: GraphState) -> dict[str, Any]:
         TOOL_DEFINITIONS,
     )
     llm_duration = time.time() - t_llm0
-    print(f"\n⏱️ [AGENT LLM TIME]: {llm_duration:.2f}s (Round {iterations + 1})")
+    usage = token_tracker.get_last()
+    print(
+        f"\n⏱️ [AGENT LLM TIME]: {llm_duration:.2f}s (Round {iterations + 1}) | "
+        f"🪙 Tokens: {usage['total_tokens']:,} (Prompt: {usage['prompt_tokens']:,} | Output: {usage['completion_tokens']:,})"
+    )
 
     return {
         "messages": [response],
@@ -1576,14 +1649,27 @@ def finalize_node(state: GraphState):
         forced_control_message,
     ]
 
-    llm_messages = _build_bounded_llm_messages(messages, turn_control_messages)
+    # کپسول شواهد معتبر از ابزارهای موفق گذشته
+    evidence_msg = _build_evidence_summary(state.get("tool_trace", []))
+    if evidence_msg is not None:
+        turn_control_messages.append(evidence_msg)
+
     clean_messages = messages[:-1] if _tool_calls_from_message(last_message) else messages
-    llm_messages = _build_bounded_llm_messages(clean_messages, turn_control_messages)
+    # در finalize_node سقف تاریخچه به جای ۴ روی ۸ پیام تنظیم می‌شود
+    llm_messages = _build_bounded_llm_messages(
+        clean_messages,
+        turn_control_messages,
+        max_recent_messages=8,
+    )
 
     forced_response = call_llm_with_tools(
         llm_messages,
         TOOL_DEFINITIONS,
         tool_choice="none",
+    )
+    usage = token_tracker.get_last()
+    print(
+        f"\n⏱️ [FINALIZE LLM]: 🪙 Tokens: {usage['total_tokens']:,} (Prompt: {usage['prompt_tokens']:,} | Output: {usage['completion_tokens']:,})"
     )
 
     forced_content = _content_from_message(forced_response)
