@@ -1002,33 +1002,65 @@ def _dataset_time_control_message() -> dict[str, Any]:
 
 def _format_trace_summary_for_evidence(tool_name: str, summary: Any) -> str:
     """خلاصه‌ی خروجی هر ابزار موفق را به یک خط خوانا و فوق‌العاده کم‌توکن تبدیل می‌کند."""
-    if isinstance(summary, str):
-        try:
-            parsed = json.loads(summary)
-        except Exception:
+    try:
+        if isinstance(summary, str):
+            try:
+                parsed = json.loads(summary)
+            except Exception:
+                parsed = summary
+        else:
             parsed = summary
-    else:
-        parsed = summary
 
-    if isinstance(parsed, dict):
-        if "rows" in parsed and isinstance(parsed["rows"], list):
-            rows = parsed["rows"]
-            row_count = parsed.get("row_count", len(rows))
-            rows_str = json.dumps(rows[:8], ensure_ascii=False, default=str)
-            return f"{row_count} رکورد: {rows_str}"
-        if "representative_comments" in parsed or "top_keywords" in parsed:
-            kw = parsed.get("top_keywords", [])[:5]
-            hits = parsed.get("hit_count", 0)
-            bname = parsed.get("brand_name")
-            pname = parsed.get("product_title")
-            entity = f" (برند: {bname})" if bname else (f" (محصول: {pname})" if pname else "")
-            return f"{hits} نظر مرتبط{entity} | کلمات کلیدی: {', '.join(kw)}"
-        if "summary" in parsed:
-            s = str(parsed["summary"])
-            return s[:300] if len(s) > 300 else s
+        if isinstance(parsed, dict):
+            if "rows" in parsed and isinstance(parsed["rows"], list):
+                rows = parsed["rows"]
+                row_count = parsed.get("row_count", len(rows))
+                rows_str = json.dumps(rows[:8], ensure_ascii=False, default=str)
+                return f"{row_count} رکورد: {rows_str}"
 
-    text = str(summary)
-    return text[:250] + "..." if len(text) > 250 else text
+            if "representative_comments" in parsed or "top_keywords" in parsed:
+                raw_kw = parsed.get("top_keywords", [])
+                if isinstance(raw_kw, dict):
+                    kw_list = raw_kw.get("rows", [])
+                elif isinstance(raw_kw, list):
+                    kw_list = raw_kw
+                else:
+                    kw_list = []
+                kw = [str(k) for k in kw_list[:5]]
+
+                hits = parsed.get("hit_count", 0)
+                bname = parsed.get("brand_name")
+                pname = parsed.get("product_title")
+                entity = f" (برند: {bname})" if bname else (f" (محصول: {pname})" if pname else "")
+
+                raw_comments = parsed.get("representative_comments", [])
+                if isinstance(raw_comments, dict):
+                    c_list = raw_comments.get("rows", [])
+                elif isinstance(raw_comments, list):
+                    c_list = raw_comments
+                else:
+                    c_list = []
+
+                sample_texts = []
+                for c in c_list[:2]:
+                    if isinstance(c, dict) and c.get("text"):
+                        sample_texts.append(str(c["text"])[:70])
+                    elif isinstance(c, str):
+                        sample_texts.append(c[:70])
+
+                comments_part = f" | نمونه: {' / '.join(sample_texts)}" if sample_texts else ""
+                kw_part = f" | کلمات کلیدی: {', '.join(kw)}" if kw else ""
+                return f"{hits} نظر مرتبط{entity}{kw_part}{comments_part}"
+
+            if "summary" in parsed:
+                s = str(parsed["summary"])
+                return s[:300] if len(s) > 300 else s
+
+        text = str(summary)
+        return text[:250] + "..." if len(text) > 250 else text
+    except Exception as exc:
+        logger.warning("_format_trace_summary_for_evidence failed: %s", exc)
+        return str(summary)[:200]
 
 
 def _build_evidence_summary(tool_trace: list[dict[str, Any]] | None) -> dict[str, Any] | None:

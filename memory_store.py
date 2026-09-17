@@ -27,6 +27,7 @@ The chat_memory table should be created once during database setup/migration.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from contextlib import contextmanager
@@ -560,8 +561,91 @@ def load_messages(
 
 
 # ============================================================
-# Save memory
+# Sanitize messages for storage
 # ============================================================
+
+def sanitize_messages_for_storage(
+    messages: list[dict[str, Any]],
+    max_sql_rows: int = 5,
+    max_comments: int = 5,
+) -> list[dict[str, Any]]:
+    """
+    Sanitizes conversation messages before saving to persistent PostgreSQL storage.
+
+    Key guarantees:
+    - 100% maintains OpenAI / LangChain message specification: preserves message roles,
+      tool_calls, and matching tool_call_id fields.
+    - Preserves product_id, title_fa, metric, period, and first rows (rows[0..4]) required
+      by main.py::_extract_active_context for subsequent turns and follow-up questions.
+    - Limits bulky SQL query result rows (retains up to max_sql_rows while preserving
+      actual total row_count).
+    - Removes non-semantic heavy metadata from RAG results (e.g. raw integer comment_ids array).
+    - Caps verbose error messages to prevent future context contamination and token waste.
+    """
+    if not isinstance(messages, list):
+        return messages
+
+    sanitized: list[dict[str, Any]] = []
+
+    for msg in messages:
+        if not isinstance(msg, dict):
+            sanitized.append(msg)
+            continue
+
+        clean_msg = dict(msg)
+        role = clean_msg.get("role")
+
+        if role == "tool":
+            content = clean_msg.get("content", "")
+            parsed = None
+            is_json = False
+
+            if isinstance(content, dict):
+                parsed = dict(content)
+                is_json = True
+            elif isinstance(content, str):
+                try:
+                    loaded = json.loads(content)
+                    if isinstance(loaded, dict):
+                        parsed = loaded
+                        is_json = True
+                except Exception:
+                    parsed = None
+
+            if is_json and isinstance(parsed, dict):
+                # 1. SQL Result Sanitization: limit rows to max_sql_rows but preserve total row_count
+                if "rows" in parsed and isinstance(parsed["rows"], list):
+                    original_rows = parsed["rows"]
+                    total_count = parsed.get("row_count", len(original_rows))
+                    parsed["row_count"] = total_count
+
+                    if len(original_rows) > max_sql_rows:
+                        parsed["rows"] = original_rows[:max_sql_rows]
+
+                # 2. RAG Result Sanitization: remove heavy raw int ID lists and unneeded vectors
+                parsed.pop("comment_ids", None)
+                parsed.pop("all_scores", None)
+
+                if "representative_comments" in parsed and isinstance(parsed["representative_comments"], list):
+                    comments = parsed["representative_comments"]
+                    if len(comments) > max_comments:
+                        parsed["representative_comments"] = comments[:max_comments]
+
+                # 3. Error message trimming
+                if "error" in parsed and parsed["error"]:
+                    err_str = str(parsed["error"])
+                    if len(err_str) > 300:
+                        parsed["error"] = err_str[:300] + "... [error truncated for storage]"
+
+                clean_msg["content"] = json.dumps(parsed, ensure_ascii=False, default=str)
+
+            elif isinstance(content, str) and len(content) > 4000:
+                clean_msg["content"] = content[:4000] + "... [truncated for storage]"
+
+        sanitized.append(clean_msg)
+
+    return sanitized
+
 
 def save_messages(
     chat_id: str,
@@ -576,6 +660,7 @@ def save_messages(
 
     chat_id = _validate_chat_id(chat_id)
     messages = _validate_messages(messages)
+    messages = sanitize_messages_for_storage(messages)
 
     with get_conn() as conn:
         with conn.cursor() as cur:
