@@ -53,7 +53,8 @@ def safe_node(node_name: str) -> Callable:
 # self-correction باید وجود داشته باشه ولی نامحدود نباشه.
 # ============================================================
 
-MAX_ITERATIONS = 6
+MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "5"))
+FOLLOWUP_MAX_ITERATIONS = int(os.getenv("FOLLOWUP_MAX_ITERATIONS", "4"))
 
 # اگه در تمام ابزارهای یک دور -- حتی اگه چندتا موازی صدا زده شده باشن --
 # همه‌شون خطا برگردونن، این شمارنده +۱ می‌شه؛ به‌محض رسیدن به این سقف،
@@ -107,57 +108,33 @@ MAX_SUBQUESTIONS = int(os.getenv("MULTI_QUESTION_MAX_PARTS", "4"))
 # هر بخش قاعدتاً باید ساده‌تر از کل سوال چندبخشی باشه).
 SUBQUESTION_MAX_ITERATIONS = int(os.getenv("MULTI_QUESTION_SUBITERATIONS", "4"))
 
-MULTI_QUESTION_SPLIT_PROMPT = """
-You are responsible for detecting whether a user's question (addressed to
-a business-analysis Agent) actually contains several fully independent
-parts or not.
- 
-Return only a JSON object in this format -- write no extra text:
- 
+MULTI_QUESTION_SPLIT_PROMPT = """You determine whether a user prompt contains multiple INDEPENDENT questions that must be processed separately, or is a single question.
+
+Return ONLY JSON:
 {"is_multi": true|false, "questions": ["...", "..."]}
- 
-Important rules -- decide very conservatively:
- 
-- The default is false. Only return true when the question truly has two
-  or more fully independent parts with no dependency on each other. A
-  clear example of independent parts: "Which product sells best? And also
-  what do users think of brand X? And what's the return rate over the last
-  3 months?" -- three fully separate questions, none of which needs the
-  answer to the others.
- 
-- If the parts of the question depend on each other (one needs the answer
-  to another -- like "which product sells better, and why?" where "why"
-  depends on the answer to the first part, or causal questions whose steps
-  are chained per the "causal questions" rule), set is_multi to false;
-  this is a single question, not several independent ones.
- 
-- If it's just one clause/sentence with several adjectives, conditions, or
-  adverbs (not several separate questions with separate interrogative
-  verbs), false.
- 
-- If true, rewrite each part as a complete, independent Persian question;
-  if a shared qualifier (such as a time range, product/brand name, or
-  metric type) appears only once in the original question but applies to
-  all parts, repeat that same qualifier in every rewritten question so
-  that no part loses this shared qualifier.
- 
-- Do not drop any detail, number, product/brand name, condition, or
-  qualifier present in the original question; only separate the
-  independent parts, don't lose any precision from the question.
- 
-- Maximum 4 parts. If you detect more than 4 independent parts, pick the 4
-  most important ones.
+
+RULES (decide conservatively):
+1. DEFAULT is false.
+2. Single Question (is_multi: false):
+   - Causal, explanatory, or opinion follow-ups exploring the active product/topic (e.g. "علتش چیست؟ خریداران از چه چیزی شکایت داشته‌اند؟", "چرا افت کرده؟ نظرات منفی چی میگن؟").
+   - Dependent clauses where one part needs the other ("کدام محصول پرفروش‌تر بود و چرا؟").
+   - Single sentence with multiple conditions, adjectives, or qualifiers.
+3. Multiple Independent Questions (is_multi: true):
+   - Only when there are 2+ completely separate questions that do NOT depend on each other (e.g. "علت افت مضراب چی بود؟ راستی ۵ برند پرفروش رو هم بگو").
+   - When splitting, rewrite each sub-question in Persian to be complete and self-contained. If a sub-question relates to the active product/context, include the product name/id explicitly in that sub-question.
+4. Maximum 4 sub-questions.
 """
 
 
-def _split_question(question: str) -> list[str]:
+def _split_question(
+    question: str,
+    conversation_context: dict[str, Any] | None = None,
+) -> list[str]:
     """
-    تشخیص می‌ده سوال چند بخش مستقل داره یا نه؛ اگه بله، لیست بخش‌های
-    بازنویسی‌شده رو برمی‌گردونه، وگرنه [question] (یعنی بدون تغییر).
+    تشخیص می‌دهد سوال چند بخش مستقل دارد یا نه؛ اگر بله، لیست بخش‌های
+    بازنویسی‌شده را برمی‌گرداند، وگرنه [question] (بدون تغییر).
 
-    fail-open: هر خطایی (شکست تماس LLM، JSON نامعتبر، ساختار غیرمنتظره)
-    باعث برگشت به [question] می‌شه -- یعنی بدترین حالت همون رفتار قبلی
-    (تک‌سوالی) است، نه شکست کل درخواست.
+    fail-open: هر خطایی باعث برگشت به [question] می‌شود.
     """
     if not ENABLE_MULTI_QUESTION_SPLIT:
         return [question]
@@ -165,8 +142,31 @@ def _split_question(question: str) -> list[str]:
     if not question or not question.strip():
         return [question]
 
+    # ساخت ورودی فشرده با کانتکست حداقل (کمتر از ۵۰ توکن) در صورت وجود follow-up
+    prompt_input_parts: list[str] = []
+    if conversation_context and conversation_context.get("is_follow_up"):
+        ctx_lines = ["[زمینه مکالمه قبلی]"]
+        if conversation_context.get("product_title"):
+            p_id = conversation_context.get("product_id")
+            id_str = f" (کد: {p_id})" if p_id else ""
+            ctx_lines.append(
+                f"محصول مورد بحث: {conversation_context['product_title']}{id_str}"
+            )
+        if conversation_context.get("metric_label") or conversation_context.get("metric"):
+            ctx_lines.append(
+                f"شاخص: {conversation_context.get('metric_label') or conversation_context.get('metric')}"
+            )
+        if conversation_context.get("previous_question"):
+            ctx_lines.append(
+                f"سوال قبلی کاربر: {conversation_context['previous_question']}"
+            )
+        prompt_input_parts.append("\n".join(ctx_lines))
+
+    prompt_input_parts.append(f"[سوال فعلی کاربر]\n{question}")
+    full_prompt_input = "\n\n".join(prompt_input_parts)
+
     try:
-        result = call_llm_json(MULTI_QUESTION_SPLIT_PROMPT, question)
+        result = call_llm_json(MULTI_QUESTION_SPLIT_PROMPT, full_prompt_input)
     except LLMServiceError:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -197,8 +197,12 @@ def _split_question(question: str) -> list[str]:
 def detect_multi_question_node(state: GraphState) -> dict[str, Any]:
     messages = state.get("messages", [])
     question = _extract_last_user_question(messages)
+    conversation_context = state.get("conversation_context", {})
 
-    sub_questions = _split_question(question)
+    sub_questions = _split_question(
+        question,
+        conversation_context=conversation_context,
+    )
     is_multi = len(sub_questions) > 1
 
     print("\n===== DETECT MULTI-QUESTION =====")
@@ -257,18 +261,36 @@ def prepare_subquestion_node(
         {},
     )
 
+    current_question = sub_questions[index]
+
     control_messages: list[dict[str, Any]] = [
         _dataset_time_control_message()
     ]
 
-    followup_control_message = _build_followup_control_message(
-        conversation_context
-    )
-
-    if followup_control_message is not None:
-        control_messages.append(
-            followup_control_message
+    # اگر سوال چندبخشی بود، کنترل follow-up (شامل product_id قبلی) را فقط
+    # در صورتی به این زیرسوال اضافه می‌کنیم که واقعاً به محصول یا موضوع قبلی مربوط باشد
+    should_attach_followup = True
+    if len(sub_questions) > 1 and conversation_context.get("product_id") is not None:
+        p_title = str(conversation_context.get("product_title") or "")
+        p_id = str(conversation_context.get("product_id") or "")
+        related_keywords = (
+            "علت", "چرا", "دلیل", "شکایت", "نظر", "همین", "محصول",
+            "کیفیت", "امتیاز", "کاهش", "افت", "افزایش"
         )
+        should_attach_followup = (
+            (p_title and p_title.split()[0] in current_question)
+            or (p_id and p_id in current_question)
+            or any(kw in current_question for kw in related_keywords)
+        )
+
+    if should_attach_followup:
+        followup_control_message = _build_followup_control_message(
+            conversation_context
+        )
+        if followup_control_message is not None:
+            control_messages.append(
+                followup_control_message
+            )
 
     control_messages.append(
         {
@@ -284,8 +306,6 @@ def prepare_subquestion_node(
             ),
         }
     )
-
-    current_question = sub_questions[index]
 
     print(
         f"\n>>> شروع پردازش بخش {index + 1} از "
@@ -956,6 +976,11 @@ def _build_followup_control_message(
             f"{conversation_context['previous_result']}"
         )
 
+    if conversation_context.get("previous_answer"):
+        context_parts.append(
+            f"previous_answer_summary = {str(conversation_context['previous_answer'])[:300]}"
+        )
+
     context_parts.extend(
         [
             "",
@@ -1487,9 +1512,28 @@ def tools_node(state: GraphState) -> dict[str, Any]:
         print("ARGS:", arguments)
         print("=====================\n")
 
-        t_tool0 = time.time()
-        result = execute_tool_call(name, arguments)
-        tool_duration = time.time() - t_tool0
+        # بررسی و جلوگیری از اجرای تکراری ابزار در یک مکالمه
+        cached_result = None
+        existing_traces = state.get("tool_trace", []) + tool_trace
+        for prev in existing_traces:
+            if prev.get("tool") == name and prev.get("ok"):
+                prev_args = prev.get("arguments") or {}
+                if name == "tool_rag" and arguments.get("product_id") and arguments.get("product_id") == prev_args.get("product_id"):
+                    cached_result = prev.get("raw_result")
+                    break
+                elif arguments == prev_args:
+                    cached_result = prev.get("raw_result")
+                    break
+
+        if cached_result is not None:
+            logger.info("tools: فراخوانی تکراری ابزار '%s' نادیده گرفته شد و از کش استفاده شد.", name)
+            print(f"\n[CACHE] فراخوانی تکراری {name} -- استفاده مستقیم از نتیجه‌ی قبلی.\n")
+            result = cached_result
+            tool_duration = 0.0
+        else:
+            t_tool0 = time.time()
+            result = execute_tool_call(name, arguments)
+            tool_duration = time.time() - t_tool0
 
         print(f"\n===== TOOL RESULT ({name} | ⏱️ {tool_duration:.2f}s) =====")
         print(result)
@@ -1513,6 +1557,7 @@ def tools_node(state: GraphState) -> dict[str, Any]:
                 "tool": name,
                 "arguments": arguments,
                 "ok": False,
+                "raw_result": result,
                 "summary": db_error_msg,
             }
             tool_trace.append(trace_entry)
@@ -1545,6 +1590,7 @@ def tools_node(state: GraphState) -> dict[str, Any]:
                     "tool": name,
                     "arguments": arguments,
                     "ok": ok,
+                    "raw_result": result,
                     "summary": (
                         result.get("error")
                         if not ok

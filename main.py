@@ -45,24 +45,29 @@ In a follow-up you must preserve:
 - the time range
 - the previous result
  
-For example, if SQL already determined that product X was the best-seller in
-a given range and the user asks "why?", do not change the product, do not
-re-run the ranking, and do not change the range. To find the reason, go
-straight to RAG for that same product.
- 
-2. Tool order
+For example, if SQL already determined that product X had the highest drop or
+was the best-seller and the user asks "why?" or about complaints:
+Do not change the product, do not re-run the ranking, and do not change the range.
+To investigate causes of dissatisfaction or complaints for a known product:
+- Structured defect analysis: Query `comment_aspects` with `sentiment = 'negative'` (or high `avg_negative_pct`) to identify specific defect areas (e.g. accuracy, battery, packaging, quality).
+- Direct voice of customer: Run `tool_rag` for customer quotes on those complaints.
+Launch both in a single parallel call in Round 1. Once fetched, deliver your managerial analysis immediately.
+
+2. Tool order and Efficiency SLA
+Fast latency and minimal token consumption are core enterprise requirements.
+Chain tools across separate rounds ONLY when a true data dependency exists
+(e.g., discovering product_id via SQL before searching reviews in RAG).
+When the product or entity is ALREADY known (such as in follow-up questions):
+Never stagger independent queries across rounds; fetch needed evidence in a
+single parallel round.
+Never call the same tool with the same arguments or duplicate search intent in
+the same question.
+
 Numeric/statistical question -> SQL only.
- 
 Combined numeric + qualitative question -> SQL first for the numeric part,
 then RAG if needed.
- 
-Causal question about an increase/decrease/drop/growth -> SQL only first.
-Only run RAG if SQL actually confirms the change in question.
- 
-For questions like "which product sold better, and why?":
-SQL -> determine the product and product_id -> RAG for that same product.
- 
-Never run SQL and RAG at the same time for one causal question.
+For new questions like "which product sold better/dropped, and why?":
+SQL first -> determine the product and product_id -> then RAG for that same product.
  
 3. Definition of "sales"
 "Best-selling", "top sales" and "best-selling products" default to meaning
@@ -145,24 +150,14 @@ AND timestamp < '2023-03-02'
 then the last reported day is 2023-03-01, not 2023-03-02 (end is always
 exclusive).
  
-5. Causal questions
-For "why did sales/rating/views go up or down?":
- 
-a) First, SQL with an explicit computation of the current period and the
-   comparison period.
-b) If the SQL doesn't sufficiently prove the change, run a corrected SQL.
-c) If the change is not confirmed, stop and say the data doesn't support the
-   claim; do not run RAG.
-d) If the change is confirmed, run RAG for qualitative evidence.
-   Decrease -> search_topic toward dissatisfaction/complaints.
-   Increase -> search_topic toward satisfaction/positive reception.
-e) If you have a valid product_id, always pass that same product_id.
-f) Keep the value/percentage of the change (from SQL) separate from the
-   qualitative themes (from RAG). Do not present correlation as a definite
-   cause.
- 
-If RAG doesn't have enough evidence for a cause, say explicitly that the
-evidence is not sufficient to determine a definite cause.
+5. Causal questions and Dissatisfaction Analysis
+For "why did sales/rating/views go up or down?" or buyer complaints:
+a) If product_id is not yet known or change is unconfirmed: First run SQL to confirm the change and identify the product_id.
+b) If change is confirmed (or product_id is already known from previous turn):
+   - Structured defect analysis: Query the `comment_aspects` table with `sentiment = 'negative'` (or high `avg_negative_pct`) to pinpoint specific defects (e.g. quality, battery, timekeeping, packaging).
+   - Voice of customer: Use `tool_rag` with that product_id for direct customer quotes.
+c) Do not present correlation as a definite cause.
+d) If evidence is insufficient, state so directly.
  
 6. RAG limitation
 When product_id is specified, that product is the primary reference.
@@ -210,13 +205,9 @@ Directives:
 # چیزی در این پرامپت لازم نیست تغییر کنه.
 # ============================================================
 KNOWLEDGE_BASE_RULE = """
-8. Before giving any suggestion or managerial recommendation (not just
-   reporting numbers/reviews, but whenever the user wants to know "what
-   should I do?"), you must first call tool_knowledge_base with the relevant
-   topic and build your suggestion by combining that trained knowledge with
-   your own general knowledge -- not from your own memory alone. If the
-   knowledge base has nothing relevant, say so explicitly and proceed based
-   on your own general knowledge.
+8. Managerial recommendations and Knowledge Base
+Only call tool_knowledge_base when the user explicitly asks for strategic advice, consulting recommendations, or business retention tactics (e.g. "چه پیشنهادی داری؟", "باید چه کار کنیم؟", "راهکار چیه؟").
+For purely diagnostic/factual questions (e.g. "علتش چیست؟", "خریداران از چه چیزی شکایت داشته‌اند؟"), focus on direct data and review evidence; do not invoke tool_knowledge_base unless strategic consulting was explicitly requested.
 """
  
 
@@ -416,12 +407,14 @@ def _extract_last_assistant_answer(
 
 def _extract_active_context(
     messages: list[dict[str, Any]],
+    all_messages: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     آخرین context معتبر مکالمه را از history استخراج می‌کند.
 
     اولویت:
         1. آخرین SQL tool result
+        1.5. پیام خلاصه‌سازی‌شده‌ی حافظه ([خلاصه‌ی مکالمات قبلی])
         2. آخرین assistant answer
         3. fallback از متن user
 
@@ -439,6 +432,7 @@ def _extract_active_context(
         "period_end": None,
         "period_label": None,
         "previous_result": None,
+        "previous_question": None,
         "source": None,
     }
 
@@ -446,7 +440,11 @@ def _extract_active_context(
     # 1. آخرین tool resultهای معتبر
     # ---------------------------------------------------------
 
-    for message in reversed(messages):
+    search_messages = list(reversed(messages))
+    if all_messages:
+        search_messages.extend(reversed(all_messages))
+
+    for message in search_messages:
 
         if message.get("role") != "tool":
             continue
@@ -470,62 +468,115 @@ def _extract_active_context(
                 if isinstance(first_row, dict):
 
                     # product_id
-                    product_id = (
-                        first_row.get("product_id")
-                        or first_row.get("id")
-                    )
-
-                    if product_id is not None:
-                        context["product_id"] = product_id
+                    if context["product_id"] is None:
+                        product_id = (
+                            first_row.get("product_id")
+                            or first_row.get("id")
+                        )
+                        if product_id is not None:
+                            context["product_id"] = product_id
 
                     # product title
-                    product_title = (
-                        first_row.get("title_fa")
-                        or first_row.get("product_title")
-                        or first_row.get("title")
-                    )
-
-                    if product_title:
-                        context["product_title"] = product_title
+                    if context["product_title"] is None:
+                        product_title = (
+                            first_row.get("title_fa")
+                            or first_row.get("product_title")
+                            or first_row.get("title")
+                        )
+                        if product_title:
+                            context["product_title"] = product_title
 
                     # metric
-                    metric_candidates = (
-                        "units_sold",
-                        "purchase_cnt",
-                        "purchase_count",
-                        "sales",
-                        "revenue",
-                        "value",
-                    )
+                    if context["metric"] is None:
+                        metric_candidates = (
+                            "units_sold",
+                            "purchase_cnt",
+                            "purchase_count",
+                            "sales",
+                            "revenue",
+                            "value",
+                        )
 
-                    for key in metric_candidates:
-                        if key in first_row:
-                            context["metric"] = key
-                            context["previous_result"] = first_row[key]
-                            break
+                        for key in metric_candidates:
+                            if key in first_row:
+                                context["metric"] = key
+                                context["previous_result"] = first_row[key]
+                                break
 
             # اگر خود result یک summary داشت
-            if obj.get("summary"):
+            if context["previous_result"] is None and obj.get("summary"):
                 context["previous_result"] = obj["summary"]
 
             # period fields
-            for key in (
-                "period_start",
-                "start_date",
-                "from_date",
-            ):
-                if obj.get(key):
-                    context["period_start"] = str(obj[key])
-                    break
+            if context["period_start"] is None:
+                for key in (
+                    "period_start",
+                    "start_date",
+                    "from_date",
+                ):
+                    if obj.get(key):
+                        context["period_start"] = str(obj[key])
+                        break
 
-            for key in (
-                "period_end",
-                "end_date",
-                "to_date",
-            ):
-                if obj.get(key):
-                    context["period_end"] = str(obj[key])
-                    break
+            if context["period_end"] is None:
+                for key in (
+                    "period_end",
+                    "end_date",
+                    "to_date",
+                ):
+                    if obj.get(key):
+                        context["period_end"] = str(obj[key])
+                        break
+
+        if context["product_id"] is not None:
+            break
+
+    # ---------------------------------------------------------
+    # 1.5. استخراج از پیام خلاصه‌سازی‌شده‌ی حافظه (در صورت فشرده‌سازی)
+    # ---------------------------------------------------------
+    if context["product_id"] is None or context["product_title"] is None:
+        check_messages = (all_messages or []) + messages
+        for message in check_messages:
+            content = _content_to_text(message.get("content"))
+            if not content:
+                continue
+            if "[خلاصه‌ی مکالمات قبلی]" in content or ("'product':" in content and "'product_id':" in content) or ('"product":' in content and '"product_id":' in content):
+                idx = content.find("{")
+                if idx != -1:
+                    dict_str = content[idx:].strip()
+                    summary_dict = None
+                    try:
+                        summary_dict = json.loads(dict_str)
+                    except Exception:
+                        try:
+                            import ast
+                            summary_dict = ast.literal_eval(dict_str)
+                        except Exception:
+                            pass
+                    if isinstance(summary_dict, dict):
+                        prod = summary_dict.get("product")
+                        if isinstance(prod, dict):
+                            if context["product_id"] is None and prod.get("product_id") is not None:
+                                context["product_id"] = prod.get("product_id")
+                            if context["product_title"] is None and prod.get("name"):
+                                context["product_title"] = prod.get("name")
+                        met = summary_dict.get("metric")
+                        if isinstance(met, dict):
+                            if context["metric"] is None and met.get("name"):
+                                context["metric"] = met.get("name")
+                                context["metric_label"] = met.get("name")
+                        elif isinstance(met, str) and context["metric"] is None:
+                            context["metric"] = met
+                            context["metric_label"] = met
+                        time_info = summary_dict.get("time")
+                        if isinstance(time_info, dict):
+                            if context["period_start"] is None and time_info.get("period_start"):
+                                context["period_start"] = str(time_info.get("period_start"))
+                            if context["period_end"] is None and time_info.get("period_end"):
+                                context["period_end"] = str(time_info.get("period_end"))
+                        if context["previous_result"] is None and summary_dict.get("result"):
+                            context["previous_result"] = str(summary_dict.get("result"))
+                break
 
     # ---------------------------------------------------------
     # 2. از assistant answer برای metric/title استفاده کن
@@ -588,7 +639,11 @@ def _extract_active_context(
     # 4. آخرین user question
     # ---------------------------------------------------------
 
-    for message in reversed(messages):
+    check_user_msgs = list(reversed(messages))
+    if all_messages:
+        check_user_msgs.extend(reversed(all_messages))
+
+    for message in check_user_msgs:
 
         if message.get("role") == "user":
             previous_question = _content_to_text(
@@ -597,8 +652,7 @@ def _extract_active_context(
 
             if previous_question:
                 context["previous_question"] = previous_question
-
-            break
+                break
 
     return context
 
@@ -770,13 +824,17 @@ def _prepare_conversation(
             break
 
     previous_answer = _extract_last_assistant_answer(active_slice)
+    if not previous_answer and messages:
+        previous_answer = _extract_last_assistant_answer(messages)
+
     is_follow_up = _is_follow_up_question(question, previous_answer)
 
-    previous_context = _extract_active_context(active_slice)
+    previous_context = _extract_active_context(active_slice, all_messages=messages)
 
     conversation_context = {
         **previous_context,
         "is_follow_up": is_follow_up,
+        "previous_answer": previous_answer[:300] if previous_answer else None,
     }
 
     # =========================================================

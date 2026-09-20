@@ -27,6 +27,7 @@ from .nodes import (
     combine_subanswers_node,
 
     MAX_ITERATIONS,
+    FOLLOWUP_MAX_ITERATIONS,
     MAX_CONSECUTIVE_TOOL_ERRORS,
     MAX_CORRECTION_RETRIES,
     SUBQUESTION_MAX_ITERATIONS,
@@ -76,7 +77,11 @@ def route_after_agent(state: GraphState) -> str:
     messages = state.get("messages", [])
     last_message = messages[-1] if messages else {}
 
-    reached_iteration_cap = state.get("iterations", 0) >= MAX_ITERATIONS
+    # برای سوالات فالوآپ سقف کوتاه‌تر (حداکثر ۳ دور) برای جلوگیری از وسواس و مصرف توکن
+    is_follow_up = bool(state.get("conversation_context", {}).get("is_follow_up"))
+    effective_max_iterations = FOLLOWUP_MAX_ITERATIONS if is_follow_up else MAX_ITERATIONS
+
+    reached_iteration_cap = state.get("iterations", 0) >= effective_max_iterations
     reached_error_cap = state.get("consecutive_tool_errors", 0) >= MAX_CONSECUTIVE_TOOL_ERRORS
 
     if last_message.get("tool_calls") and not reached_iteration_cap and not reached_error_cap:

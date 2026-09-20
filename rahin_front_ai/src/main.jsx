@@ -639,6 +639,8 @@ function Assistant() {
   const abortControllersRef = useRef({}); // { [sessionId]: AbortController }
   const [topbarEditing, setTopbarEditing] = useState(false);
   const [topbarTitle, setTopbarTitle] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const textareaRef = useRef(null);
 
   const persist = (next) => {
     setSessions(next);
@@ -1049,9 +1051,8 @@ function Assistant() {
   const selectQuestion = (q) => ask(q);
   return (
     <section className="assistant-page">
-      <PageTitle eyebrow="تحلیل هوشمند" title="دستیار هوشمند" desc="سؤال مدیریتی خود را به زبان طبیعی بپرسید و پاسخ تحلیلی دریافت کنید." icon={MessageSquareText} />
-      <div className="chat-workspace">
-        <aside className="chat-sidebar">
+      <div className={`chat-workspace ${!sidebarOpen ? 'sidebar-collapsed' : ''}`}>
+        <aside className={`chat-sidebar ${!sidebarOpen ? 'collapsed' : ''}`}>
           <button className="new-chat-btn" onClick={createChat}><Plus /> گفت‌وگوی جدید</button>
           <div className="chat-sidebar-section">
             <div className="chat-sidebar-label"><Pin /> پین‌شده‌ها</div>
@@ -1065,6 +1066,7 @@ function Assistant() {
 
         <div className="chat-main">
           <div className="chat-topbar">
+            <button className="sidebar-toggle-btn" onClick={() => setSidebarOpen(prev => !prev)} title={sidebarOpen ? 'بستن ساید‌بار' : 'باز کردن ساید‌بار'}><Menu /></button>
             <div className="chat-topbar-badge"><Bot /></div>
             <div className="chat-topbar-info">
               {topbarEditing ? (
@@ -1103,7 +1105,7 @@ function Assistant() {
             <div className="chat-status"><i /> آنلاین</div>
           </div>
 
-          {!messages.length && !input.trim() && (
+          {!messages.length && (
             <div className="chat-welcome">
               <div className="chat-welcome-bot"><img src="/assets/assistant-art.png" alt="دستیار راهین" /></div>
               <h2>از داده‌ها سؤال بپرسید</h2>
@@ -1200,16 +1202,25 @@ function Assistant() {
                             title="کپی پیام"><Copy /></button></div>)}</>)}</div>);})}
         </div>
           <div className="composer composer-large">
-            <div className="composer-star">✦</div>
+            <div className="composer-star"><img src="/assets/logo-mark.png" alt="راهین" /></div>
 
             <textarea
+              ref={textareaRef}
               className="composer-textarea"
               value={input}
-              onChange={e => setInput(e.target.value)}
+              onChange={e => {
+                setInput(e.target.value);
+                const ta = textareaRef.current;
+                if (ta) {
+                  ta.style.height = 'auto';
+                  ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+                }
+              }}
               onKeyDown={e => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   ask(input);
+                  if (textareaRef.current) textareaRef.current.style.height = 'auto';
                 }
               }}
               placeholder="سؤال مدیریتی خود را بنویسید..."

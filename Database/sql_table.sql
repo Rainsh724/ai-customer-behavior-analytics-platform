@@ -111,6 +111,16 @@ CREATE TABLE IF NOT EXISTS comment_aspects (
     positive_pct DOUBLE PRECISION
 
 );
+
+CREATE TABLE public.app_users (
+    id            BIGSERIAL PRIMARY KEY,
+    username      TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    display_name  TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+
 -- ==========================================
 -- INDEXES - CORE  ESSENTIAL
 -- ==========================================
