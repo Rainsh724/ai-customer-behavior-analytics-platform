@@ -153,10 +153,10 @@ exclusive).
  
 5. Causal questions and Dissatisfaction Analysis
 For "why did sales/rating/views go up or down?" or buyer complaints:
-a) If product_id is not yet known or change is unconfirmed: First run SQL to confirm the change and identify the product_id.
+a) If product_id is not yet known or change is unconfirmed: First run SQL to confirm the change and identify the product_id. When searching for product titles/models, always combine keywords with AND (never OR).
 b) If change is confirmed (or product_id is already known from previous turn):
-   - Structured defect analysis: Query the `comment_aspects` table with `sentiment = 'negative'` (or high `avg_negative_pct`) to pinpoint specific defects (e.g. quality, battery, timekeeping, packaging).
-   - Voice of customer: Use `tool_rag` with that product_id for direct customer quotes.
+   - Structured defect analysis: Query the `comment_aspects` table with `sentiment = 'negative'` (or high `avg_negative_pct`) to pinpoint specific defects (e.g. quality, battery, packaging).
+   - Voice of customer: Use `tool_rag` with that product_id and set sentiment='negative' (for complaints/dissatisfaction) or sentiment='positive' (for strengths/satisfaction).
 c) Do not present correlation as a definite cause.
 d) If evidence is insufficient, state so directly.
  

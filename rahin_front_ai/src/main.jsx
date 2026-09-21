@@ -1357,7 +1357,7 @@ function BrandIntelligence() {
   useEffect(() => { json("/api/brand-intelligence").then(d => setData(d.items || d || [])).catch(() => {}); }, []);
   return <section><PageTitle eyebrow="تحلیل برند" title="هوش برند" desc="ارزیابی جایگاه برندها بر اساس تعامل، فروش، درآمد و بازخورد مشتریان." icon={Tags} />
     <div className="insight-grid"><Insight icon={Eye} title="تعامل" text="بازدید و تعامل برندها را مقایسه کنید." tone="blue" /><Insight icon={TrendingUp} title="فروش" text="عملکرد فروش برندها را کنار هم ببینید." tone="violet" /><Insight icon={Star} title="رضایت" text="بازخورد و احساسات مشتریان را بررسی کنید." tone="orange" /></div>
-    <div className="table-card"><div className="card-head"><div><h3>عملکرد برندها</h3><span>اطلاعات از سرویس هوش برند دریافت می‌شود.</span></div></div>
+    <div className="table-card"><div className="card-head"><div><h3>عملکرد برندها در یک سال اخیر</h3><span>اطلاعات از سرویس هوش برند دریافت می‌شود.</span></div></div>
       <div className="table-wrap"><table><thead><tr><th>برند</th><th>بازدید</th><th>فروش</th><th>درآمد</th><th>نرخ تبدیل</th><th>رضایت</th></tr></thead>
         <tbody>{data.length ? data.map((r, i) => <tr key={i}><td>{r.brand_name || "—"}</td><td>{fmt(r.total_views_30d ?? r.total_views)}</td><td>{fmt(r.total_purchases_30d ?? r.total_purchases)}</td><td>{money(r.total_revenue_30d)}</td><td>{pct(r.conversion_rate_30d)}</td><td>{r.brand_sentiment_score == null ? "—" : r.brand_sentiment_score}</td></tr>) : <tr><td colSpan="6" className="no-data">داده‌ای برای نمایش دریافت نشد.</td></tr>}</tbody>
       </table></div></div>

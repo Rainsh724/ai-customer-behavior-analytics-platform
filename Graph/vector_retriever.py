@@ -101,9 +101,11 @@ def _build_where_clause(
     product_id: Any = None,
     brand_id: Any = None,
     category_id: Any = None,
+    sentiment: str | None = None,
 ) -> tuple[str, tuple]:
     """فیلتر متادیتا رو به شرط SQL پارامتریزه تبدیل می‌کنه (بدون string concat خام).
-    پشتیبانی از product_id (روی comments c) و brand_id / category_id (روی products p)."""
+    پشتیبانی از product_id (روی comments c) و brand_id / category_id (روی products p)
+    و فیلتر کیفیت/احساسات بر اساس rate و recommendation_status."""
     conditions: list[str] = []
     params: list[Any] = []
 
@@ -122,6 +124,12 @@ def _build_where_clause(
         conditions.append("p.category_id = %s")
         params.append(clean_cid)
 
+    sentiment_str = str(sentiment).strip().lower() if sentiment else None
+    if sentiment_str in ("negative", "dissatisfied", "complaint", "منفی", "نارضایتی"):
+        conditions.append("(c.rate <= 2.5 OR c.recommendation_status = 'not_recommended')")
+    elif sentiment_str in ("positive", "satisfied", "praise", "مثبت", "رضایت"):
+        conditions.append("(c.rate >= 4.0 OR c.recommendation_status = 'recommended')")
+
     if not conditions:
         return "", ()
     return " AND ".join(conditions), tuple(params)
@@ -132,14 +140,16 @@ def run_rag_tool(
     product_id: int | None = None,
     brand_id: int | None = None,
     category_id: int | None = None,
+    sentiment: str | None = None,
 ) -> dict[str, Any]:
     """
     ورودی: search_topic (موضوع جست‌وجو در نظرات)،
     product_id (اختیاری -- فیلتر نظرات همان محصول)،
     brand_id (اختیاری -- فیلتر نظرات کل محصولات یک برند)،
-    category_id (اختیاری -- فیلتر نظرات محصولات یک دسته‌بندی).
+    category_id (اختیاری -- فیلتر نظرات محصولات یک دسته‌بندی)،
+    sentiment (اختیاری -- 'negative' برای نارضایتی و شکایات، 'positive' برای رضایت و نقاط قوت).
     خروجی: dict که مستقیم به‌صورت JSON در پیام "tool" به Agent برمی‌گرده
-    -- شامل خلاصه (نه ۲۰ نظر خام).
+    -- در صورت کم بودن نظرات (<=5)، بدون خلاصه و با دقت ۱۰۰٪ متن کامل همان نظرات بازمی‌گردد.
     """
     if not search_topic or not search_topic.strip():
         return {"error": "search_topic خالی بود."}
@@ -147,12 +157,108 @@ def run_rag_tool(
     clean_pid = _sanitize_int(product_id)
     clean_bid = _sanitize_int(brand_id)
     clean_cid = _sanitize_int(category_id)
+    sentiment_str = str(sentiment).strip().lower() if sentiment else None
 
     where_sql, where_params = _build_where_clause(
         product_id=clean_pid,
         brand_id=clean_bid,
         category_id=clean_cid,
+        sentiment=sentiment_str,
     )
+
+    # ---------------------------------------------------------
+    # بررسی سریع Direct Fetch (بدون مصرف توکن LLM و بدون اجرای امبدینگ):
+    # اگر تعداد نظرات منطبق کمتر مساوی ۵ باشد، مستقیماً تمام نظرات را با
+    # متن کامل و متادیتا بازمی‌گردانیم تا هیچ نظری حذف یا تحریف نشود.
+    # ---------------------------------------------------------
+    total_matching = None
+    if where_sql:
+        try:
+            from .db import run_readonly_query
+            count_sql = f"""
+                SELECT COUNT(*) AS cnt
+                FROM comments c
+                JOIN products p ON p.id = c.product_id
+                WHERE {where_sql};
+            """
+            count_res = run_readonly_query(count_sql, where_params)
+            total_matching = count_res[0]["cnt"] if count_res else 0
+        except Exception as exc:
+            logger.debug("run_rag_tool: Direct fetch count check failed, falling back to vector search: %s", exc)
+            total_matching = None
+
+    if total_matching == 0:
+        names = _resolve_names(clean_pid, clean_bid, clean_cid, hits=[])
+        res = {
+            "search_topic": search_topic,
+            "product_id": clean_pid,
+            "product_title": names["product_title"],
+            "brand_id": clean_bid,
+            "brand_name": names["brand_name"],
+            "category_id": clean_cid,
+            "category_name": names["category_name"],
+            "sentiment": sentiment_str,
+            "hit_count": 0,
+            "note": "هیچ نظر منطبقی با این مشخصات و فیلتر در پایگاه داده پیدا نشد.",
+        }
+        return {k: v for k, v in res.items() if v is not None}
+
+    if total_matching is not None and 1 <= total_matching <= 5:
+        try:
+            from .db import run_readonly_query
+            direct_sql = f"""
+                SELECT
+                    c.id                      AS comment_id,
+                    c.product_id,
+                    c.rate,
+                    c.recommendation_status,
+                    c.likes,
+                    c.dislikes,
+                    c.raw_text_normalized,
+                    c.created_at,
+                    p.title_fa                AS product_title,
+                    b.name                    AS brand_name,
+                    cat.category2             AS category_name
+                FROM comments c
+                JOIN products p ON p.id = c.product_id
+                LEFT JOIN brands b ON b.brand_id = p.brand_id
+                LEFT JOIN categories cat ON cat.category_id = p.category_id
+                WHERE {where_sql}
+                ORDER BY c.rate ASC, c.id ASC
+                LIMIT 5;
+            """
+            rows = run_readonly_query(direct_sql, where_params)
+            if rows:
+                names = _resolve_names(clean_pid, clean_bid, clean_cid, hits=rows)
+                direct_comments = [
+                    {
+                        "text": r["raw_text_normalized"],
+                        "comment_id": r["comment_id"],
+                        "rate": r["rate"],
+                        "likes": r["likes"],
+                        "dislikes": r["dislikes"],
+                        "recommendation_status": r["recommendation_status"],
+                    }
+                    for r in rows
+                ]
+                res = {
+                    "search_topic": search_topic,
+                    "product_id": clean_pid,
+                    "product_title": names["product_title"],
+                    "brand_id": clean_bid,
+                    "brand_name": names["brand_name"],
+                    "category_id": clean_cid,
+                    "category_name": names["category_name"],
+                    "sentiment": sentiment_str,
+                    "hit_count": len(rows),
+                    "retrieval_mode": "direct_fetch_exact",
+                    "note": f"به دلیل کم بودن تعداد نظرات ({len(rows)} نظر)، متن تمامی نظرات به صورت دقیق و بدون خلاصه بازگردانده شد.",
+                    "representative_comments": direct_comments,
+                    "comment_ids": [r["comment_id"] for r in rows],
+                }
+                return {k: v for k, v in res.items() if v is not None}
+        except Exception as exc:
+            logger.warning("run_rag_tool: Direct fetch query failed, falling back to vector search: %s", exc)
 
     try:
         embedding = embed_text(search_topic)
@@ -182,6 +288,7 @@ def run_rag_tool(
             "brand_name": names["brand_name"],
             "category_id": clean_cid,
             "category_name": names["category_name"],
+            "sentiment": sentiment_str,
             "hit_count": 0,
             "note": "هیچ نظر مرتبطی در پایگاه داده پیدا نشد.",
         }
@@ -209,6 +316,7 @@ def run_rag_tool(
         "brand_name": names["brand_name"],
         "category_id": clean_cid,
         "category_name": names["category_name"],
+        "sentiment": sentiment_str,
         "hit_count": len(hits),
         "top_keywords": summary["top_keywords"],
         "representative_comments": summary["representative_comments"],

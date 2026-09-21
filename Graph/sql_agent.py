@@ -82,6 +82,7 @@ products(id BIGINT PK, title_fa TEXT, brand_id INT FK->brands.brand_id,
          category_id INT FK->categories.category_id, seller_id INT FK->sellers.seller_id,
          price BIGINT, min_price_last_month BIGINT, is_fake BOOLEAN,
          rate DOUBLE PRECISION, rate_cnt BIGINT)
+         -- NOTE: products.rate is satisfaction percentage on a 0 to 100 scale (e.g. 86.0 = 86%).
 brands(brand_id INT PK, name TEXT)
 categories(category_id INT PK, category1 TEXT, category2 TEXT, sub_category TEXT)
 sellers(seller_id INT PK, seller_title TEXT)
@@ -101,8 +102,10 @@ user_behavior_logs(log_id BIGINT PK, session_id TEXT FK->sessions.session_id,
 comments(id BIGINT PK, product_id BIGINT FK->products.id, is_buyer BOOLEAN,
          rate DOUBLE PRECISION, recommendation_status TEXT, likes INT, dislikes INT,
          created_at TIMESTAMPTZ)
+         -- NOTE: comments.rate is customer star rating on a 0.0 to 5.0 scale (0.0 = no star given, 1.0 to 5.0 = stars).
 comment_aspects(aspect_id INT PK, comment_id BIGINT FK->comments.id, term TEXT,
                 sentiment TEXT, negative_pct DOUBLE PRECISION, neutral_pct DOUBLE PRECISION, positive_pct DOUBLE PRECISION)
+                -- NOTE: sentiment values are 'negative', 'positive', 'neutral'. To match reliably, use sentiment ILIKE '%negative%' or sentiment = 'negative'.
 
 -- 4. Pre-computed KPIs & ML Clusters (FAST & HIGH-ACCURACY - Use for general/all-time/segmentation queries):
 -- Customer Personas & Segmentation:

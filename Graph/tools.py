@@ -62,6 +62,7 @@ TOOL_DEFINITIONS: list[dict] = [
                 "'<reference date>'::date - INTERVAL '30 days').\n"
                 "- When filtering up to the reference date (upper boundary e.g. timestamp < ...), "
                 "always write '<reference date>'::date + INTERVAL '1 day' to include the full 24 hours of that reference day.\n"
+                "- When searching for products by title, brand, or model name, ALWAYS combine keywords with AND (e.g. title_fa ILIKE '%سوپکس%' AND title_fa ILIKE '%LOW57%'), NEVER use OR. Using OR with a high-cardinality brand name fills the LIMIT with unrelated products and misses the specific target item.\n"
                 "- Do not use this tool to read review text or do "
                 "semantic search -- that's tool_rag's job.\n\n"
                 """
@@ -120,7 +121,10 @@ TOOL_DEFINITIONS: list[dict] = [
                 "Filter rules:\n"
                 "- If product_id is specified, only reviews for that exact product count as valid evidence.\n"
                 "- If brand_id is specified, reviews across all products belonging to that brand are searched.\n"
-                "- If category_id is specified, reviews across all products belonging to that category are searched.\n\n"
+                "- If category_id is specified, reviews across all products belonging to that category are searched.\n"
+                "- Set sentiment='negative' when investigating complaints, dissatisfaction, quality drops, defects, or return reasons.\n"
+                "- Set sentiment='positive' when investigating satisfaction, praise, strengths, or positive reception.\n"
+                "- Automatic Direct Fetch: If matching reviews for the entity are 5 or fewer, this tool directly retrieves the exact text of all those reviews with 100% fidelity without summary loss.\n\n"
                 "If a specific filter is given and hit_count=0, you must not drop the filter or attribute "
                 "results from other products/brands to this one. State explicitly that no evidence was found.\n\n"
                 "search_topic must reflect the direction of the question; "
@@ -154,6 +158,16 @@ TOOL_DEFINITIONS: list[dict] = [
                     "category_id": {
                         "type": ["integer", "null"],
                         "description": "Optional: Filter comments for all products belonging to this category_id.",
+                    },
+                    "sentiment": {
+                        "type": ["string", "null"],
+                        "enum": ["negative", "positive", None],
+                        "description": (
+                            "Optional: Filter comments by sentiment. "
+                            "Use 'negative' for complaints, dissatisfaction, quality drops, defects, or return reasons. "
+                            "Use 'positive' for satisfaction, praises, strengths, or positive feedback. "
+                            "Leave null or omit for general overview across all reviews."
+                        ),
                     },
                 },
                 "required": ["search_topic"],
@@ -252,6 +266,7 @@ def execute_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
                 product_id=arguments.get("product_id"),
                 brand_id=arguments.get("brand_id"),
                 category_id=arguments.get("category_id"),
+                sentiment=arguments.get("sentiment"),
             )
 
         if name == "tool_chart":

@@ -204,7 +204,7 @@ def login(payload: LoginRequest) -> LoginResponse:
 # ------------------------------------------------------------------
 # هوش برند -- کوئری مستقیم SQL (بدون عبور از LLM)، چون ساختار صفحه
 # ثابته و نیازی به تفسیر زبان طبیعی نداره.
-# بازه‌ی "۳۰ روز اخیر" نسبت به تاریخ مرجعِ دیتاست حساب می‌شه، نه
+# بازه‌ی "یک سال اخیر" نسبت به تاریخ مرجعِ دیتاست حساب می‌شه، نه
 # NOW() واقعی Postgres، چون این دیتاست real-time نیست.
 # ------------------------------------------------------------------
 BRAND_INTELLIGENCE_SQL = """
@@ -216,14 +216,14 @@ base AS (
     FROM user_behavior_logs ubl
     JOIN products p ON p.id = ubl.product_id
     CROSS JOIN ref
-    WHERE ubl.timestamp >= ref.d - INTERVAL '30 days'
+    WHERE ubl.timestamp >= ref.d - INTERVAL '1 year'
       AND ubl.timestamp < ref.d + INTERVAL '1 day'
 ),
 agg AS (
     SELECT
         brand_id,
-        COUNT(*) FILTER (WHERE event_type = 'view')     AS total_views_30d,
-        COUNT(*) FILTER (WHERE event_type = 'purchase')  AS total_purchases_30d
+        COUNT(*) FILTER (WHERE event_type = 'view')     AS total_views_1y,
+        COUNT(*) FILTER (WHERE event_type = 'purchase')  AS total_purchases_1y
     FROM base
     GROUP BY brand_id
 ),
@@ -234,7 +234,7 @@ purchase_products AS (
     GROUP BY brand_id, product_id, price
 ),
 revenue AS (
-    SELECT brand_id, SUM(purchase_cnt * price) AS total_revenue_30d
+    SELECT brand_id, SUM(purchase_cnt * price) AS total_revenue_1y
     FROM purchase_products
     GROUP BY brand_id
 ),
@@ -246,12 +246,18 @@ sentiment AS (
 )
 SELECT
     b.name AS brand_name,
-    COALESCE(agg.total_views_30d, 0)      AS total_views_30d,
-    COALESCE(agg.total_purchases_30d, 0)  AS total_purchases_30d,
-    COALESCE(revenue.total_revenue_30d, 0) AS total_revenue_30d,
-    CASE WHEN COALESCE(agg.total_views_30d, 0) = 0 THEN 0
-         ELSE ROUND((agg.total_purchases_30d::numeric / agg.total_views_30d) * 100, 2)
+    COALESCE(agg.total_views_1y, 0)      AS total_views_30d,
+    COALESCE(agg.total_views_1y, 0)      AS total_views,
+    COALESCE(agg.total_purchases_1y, 0)  AS total_purchases_30d,
+    COALESCE(agg.total_purchases_1y, 0)  AS total_purchases,
+    COALESCE(revenue.total_revenue_1y, 0) AS total_revenue_30d,
+    COALESCE(revenue.total_revenue_1y, 0) AS total_revenue,
+    CASE WHEN COALESCE(agg.total_views_1y, 0) = 0 THEN 0
+         ELSE ROUND((agg.total_purchases_1y::numeric / agg.total_views_1y) * 100, 2)
     END AS conversion_rate_30d,
+    CASE WHEN COALESCE(agg.total_views_1y, 0) = 0 THEN 0
+         ELSE ROUND((agg.total_purchases_1y::numeric / agg.total_views_1y) * 100, 2)
+    END AS conversion_rate,
     ROUND(sentiment.avg_rate::numeric, 2) AS brand_sentiment_score
 FROM brands b
 LEFT JOIN agg      ON agg.brand_id = b.brand_id
