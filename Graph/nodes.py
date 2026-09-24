@@ -1008,19 +1008,10 @@ def _dataset_time_control_message() -> dict[str, Any]:
     return {
         "role": "system",
         "content": (
-            "[DATASET TIME CONTROL]\n"
-            f"Reference date: {reference_date}\n"
-            "Interpret every relative or explicit time expression "
-            "(day, week, month, quarter, year, recent periods, date ranges, etc.) "
-            "relative to this reference date. Convert it to exact period_start "
-            "and period_end values before querying. Never use today's date, "
-            "system date, or MAX(timestamp) to determine the time range.\n"
-            "Never compute the exact calendar date yourself by hand: always "
-            "write the SQL bound as an expression relative to the literal "
-            f"reference date, e.g. '{reference_date}'::date - INTERVAL 'N days/months', "
-            "and when writing the upper boundary to include the reference day, always write: "
-            f"timestamp < '{reference_date}'::date + INTERVAL '1 day'. "
-            "Only PostgreSQL's own date arithmetic is trusted for this."
+            f"[DATASET TIME CONTROL: Reference date = {reference_date}]\n"
+            f"Compute all relative date ranges relative to {reference_date} via PostgreSQL date arithmetic: "
+            f"'{reference_date}'::date - INTERVAL '...'. Upper bound for reference day: timestamp < '{reference_date}'::date + INTERVAL '1 day'. "
+            f"Never use NOW() or CURRENT_DATE."
         ),
     }
 
