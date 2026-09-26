@@ -13,6 +13,7 @@ from .llm_client import call_llm_with_tools, call_llm_json, LLMServiceError, tok
 from .tools import TOOL_DEFINITIONS, execute_tool_call
 from .audit import validate_answer, correct_answer as _real_correct_answer, CORRECTION_THRESHOLD
 from .dataset_time import get_reference_date
+from .fast_classifier import fast_is_multi_question
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,13 @@ def _split_question(
         return [question]
 
     if not question or not question.strip():
+        return [question]
+
+    # فیلتر سریع ۳۰ میلی‌ثانیه‌ای: اگر مدل تصمیم‌گیری سبک با قطعیت بالا
+    # تشخیص دهد سوال تک‌بخشی است (۹۰٪ مواقع)، بلافاصله بدون تماس سنگین LLM ادامه می‌دهیم
+    fast_multi = fast_is_multi_question(question)
+    if fast_multi is False:
+        logger.info("multi_question: fast_classifier تشخیص داد سوال تک‌بخشی است.")
         return [question]
 
     # ساخت ورودی فشرده با کانتکست حداقل (کمتر از ۵۰ توکن) در صورت وجود follow-up

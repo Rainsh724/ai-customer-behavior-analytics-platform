@@ -114,9 +114,19 @@ LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "75.0"))
 def get_client() -> OpenAI:
     global _client
     if _client is None:
+        base_url = (
+            os.getenv("OPENAI_BASE_URL")
+            or os.getenv("BASE_URL")
+            or "https://openrouter.ai/api/v1"
+        ).strip()
+        # اگر آدرس به اشتباه به اندپوینت decisions یا chat/completions اشاره داشت اصلاح می‌شود
+        if base_url.endswith("/chat/completions"):
+            base_url = base_url[:-len("/chat/completions")]
+        if "/api/alpha/decisions" in base_url:
+            base_url = base_url.replace("/api/alpha/decisions", "/api/v1")
         _client = OpenAI(
             api_key=os.environ["API_KEY"],
-            base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            base_url=base_url,
             timeout=LLM_TIMEOUT,
         )
     return _client
@@ -124,17 +134,14 @@ def get_client() -> OpenAI:
 
 CHAT_MODEL = os.getenv(
     "AGENT_LLM_MODEL",
-    "qwen3.7-flash",
+    "jev-latest",
 )
 
-# برای تماس‌های JSON کوچیک/طبقه‌بندی (call_llm_json: follow-up classifier،
-# multi-question split، validation/correction، KB placeholder) نیازی به
-# مدل بزرگ اصلی نیست -- یه مدل کوچیک‌تر همون دقت کافی رو با هزینه و
-# latency کمتر می‌ده.
-CLASSIFIER_LLM_MODEL = os.getenv(
-    "CLASSIFIER_LLM_MODEL",
-    "qwen3.7-flash",
+CLASSIFIER_LLM_MODEL = (
+    os.getenv("CLASSIFIER_LLM_MODEL")
+    or CHAT_MODEL
 )
+
 
 # باید دقیقاً همون مدلی باشه که comments_embedding باهاش ساخته شده.
 EMBEDDING_MODEL_NAME = os.getenv(
@@ -206,11 +213,13 @@ def call_llm_json(
     """
     client = get_client()
     resolved_model = model or CLASSIFIER_LLM_MODEL
+    max_tokens = int(os.getenv("CLASSIFIER_MAX_TOKENS", "1500"))
 
     def _do_call():
         return client.chat.completions.create(
             model=resolved_model,
             temperature=0,
+            max_tokens=max_tokens,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -271,10 +280,12 @@ def call_llm_with_tools(
     ساده‌ست، آماده برای append شدن به state["messages"].
     """
     client = get_client()
+    agent_max_tokens = int(os.getenv("AGENT_MAX_TOKENS", "3000"))
     kwargs: dict[str, Any] = dict(
         model=CHAT_MODEL,
         temperature=0,
         messages=messages,
+        max_tokens=agent_max_tokens,
     )
 
     estimated_input_chars = len(

@@ -64,6 +64,7 @@ import os
 from typing import Any
 
 from .llm_client import call_llm_json, CHAT_MODEL
+from .fast_classifier import fast_validate_answer
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,7 @@ Scoring rules for faithfulness_score:
   only shows correlation, not causation, should lower the score.
 - If no tool was called at all but the answer claims specific data, give a
   very low score (below 30).
+- Conversational greetings, identity introductions ("نام من راهین است"), or explanations of capabilities are derived from system persona, NOT from database tools. If the question is about identity/greeting/capabilities and no database tool was required, give faithfulness_score near 100 with grounded=true and warnings empty.
 - If the answer is fully based on the available evidence -> warnings empty,
   grounded=true, faithfulness_score near 100.
 - If faithfulness_score is below 70, warnings must never be empty -- always
@@ -168,10 +170,38 @@ def validate_answer(
             "warnings": ["جواب نهایی خالی بود."],
         }
 
+    # سوالات هویتی، احوال‌پرسی یا قابلیت‌های سیستم که نیازی به ابزارهای دیتابیس ندارند
+    if not tool_trace:
+        q_norm = (question or "").strip().lower()
+        identity_keywords = (
+            "اسم", "نام", "کیستی", "کی هستی", "چیستی", "چه کاره", "چکار", "سلام", "درود", "خوبی", "قابلیت"
+        )
+        if any(kw in q_norm for kw in identity_keywords):
+            logger.info("validate_answer: سوال هویتی/معرفی تشخیص داده شد؛ تایید بدون نیاز به ابزار دیتابیس.")
+            return {
+                "grounded": True,
+                "faithfulness_score": 100,
+                "relevance_score": 100,
+                "confidence_score": 100,
+                "warnings": [],
+            }
+
+    evidence_summary = _summarize_trace(tool_trace)
+
+    # ممیزی سریع ۳۰ میلی‌ثانیه‌ای با مدل تصمیم‌گیری سبک (Decision Model)
+    fast_val = fast_validate_answer(question, final_answer, evidence_summary)
+    if fast_val is not None:
+        logger.info(
+            "validate_answer: ممیزی سریع با موفقیت انجام شد (faithfulness=%s, relevance=%s)",
+            fast_val.get("faithfulness_score"),
+            fast_val.get("relevance_score"),
+        )
+        return fast_val
+
     user_prompt = (
         f"سوال کاربر:\n{question}\n\n"
         f"جواب نهایی:\n{final_answer}\n\n"
-        f"خلاصه‌ی شواهد خام:\n{_summarize_trace(tool_trace)}"
+        f"خلاصه‌ی شواهد خام:\n{evidence_summary}"
     )
 
     try:

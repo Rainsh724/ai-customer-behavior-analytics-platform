@@ -9,6 +9,7 @@ import logging
 from Graph.graph import get_graph
 from Graph.dataset_time import get_reference_date
 from Graph.llm_client import preload_embedding_model, call_llm_json, token_tracker
+from Graph.fast_classifier import fast_is_follow_up
 import memory_store
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,11 @@ Rules -- decide conservatively:
 def _classify_follow_up_llm(question: str, previous_answer: str) -> bool:
     if not previous_answer or not previous_answer.strip():
         return False
+
+    # فیلتر سریع ۳۰ میلی‌ثانیه‌ای با مدل تصمیم‌گیری سبک (Decision Model)
+    fast_result = fast_is_follow_up(question, previous_answer)
+    if fast_result is not None:
+        return fast_result
 
     try:
         result = call_llm_json(
@@ -760,14 +766,17 @@ def run(question, chat_id=None, history=None) -> dict[str, Any]:
     messages, conversation_context, current_turn_index = _prepare_conversation(question, chat_id, history)
 
     graph = get_graph()
-    result = graph.invoke({
-        "messages": messages,
-        "conversation_context": conversation_context,
-        "iterations": 0,
-        "consecutive_tool_errors": 0,
-        "tool_trace": [],
-        "errors": [],
-    })
+    result = graph.invoke(
+        {
+            "messages": messages,
+            "conversation_context": conversation_context,
+            "iterations": 0,
+            "consecutive_tool_errors": 0,
+            "tool_trace": [],
+            "errors": [],
+        },
+        config={"recursion_limit": 60},
+    )
 
     if chat_id:
         memory_store.save_messages(chat_id, result["messages"])
@@ -845,7 +854,11 @@ def run_stream(question: str, chat_id: str | None = None, history: list[dict[str
     final_state = None
     prev_sub_trace_len = [0]
 
-    for mode, chunk in graph.stream(input_state, stream_mode=["updates", "values"]):
+    for mode, chunk in graph.stream(
+        input_state,
+        stream_mode=["updates", "values"],
+        config={"recursion_limit": 60},
+    ):
         if mode == "values":
             final_state = chunk
             continue
