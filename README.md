@@ -13,12 +13,12 @@
 
 <br/>
 
-A sophisticated AI-powered analytics platform combining intelligent agents, semantic search, SQL analytics, and real-time dashboards to unlock deep insights from customer behavior data.
+A production-oriented, ReAct-based analytics platform that combines an LLM agent, validated Text-to-SQL, semantic search over Persian customer reviews (pgvector), a management knowledge base, and real-time dashboards to turn customer behavior data into evidence-backed insights.
 
 [![GitHub Stars](https://img.shields.io/github/stars/Rainsh724/ai-customer-behavior-analytics-platform?style=social)](https://github.com/Rainsh724/ai-customer-behavior-analytics-platform)
 [![GitHub Forks](https://img.shields.io/github/forks/Rainsh724/ai-customer-behavior-analytics-platform?style=social)](https://github.com/Rainsh724/ai-customer-behavior-analytics-platform)
 
-[📚 Features](#-key-features) • [🏗️ Architecture](#-architecture) • [🚀 Quick Start](#-quick-start) • [💻 Tech Stack](#-tech-stack) • [📖 Documentation](#-documentation)
+[📚 Features](#-key-features) • [🏗️ Architecture](#-architecture) • [🚀 Quick Start](#-quick-start) • [🛡️ Reliability](#️-reliability--guardrails) • [💻 Tech Stack](#-tech-stack) • [📖 Documentation](#-documentation)
 
 </div>
 
@@ -26,35 +26,60 @@ A sophisticated AI-powered analytics platform combining intelligent agents, sema
 
 ## ✨ Key Features
 
-### 🤖 **Intelligent Conversational Agent**
+### 🤖 **ReAct Conversational Agent**
 ```
 💬 Natural Language Understanding
 ├─ Persian & English query support
-├─ Context-aware follow-up detection
-├─ Multi-turn conversation memory
-└─ Smart tool orchestration
+├─ Tool-calling agent (Reason → Act → Observe loop)
+├─ Context-aware follow-up detection ("Why?" keeps product / metric / period)
+├─ Multi-question support (each sub-answer validated separately)
+└─ Persistent multi-turn memory
 ```
 
-- 🧠 **Advanced Understanding**: Comprehends complex business questions
-- 💾 **Memory Management**: Preserves context across conversations
-- 🔄 **Smart Follow-ups**: "Why?" questions automatically reference previous data
-- 🎯 **Automatic Tool Selection**: Chooses SQL, RAG, or charts based on intent
+- 🧠 **Agent-driven routing**: the LLM decides which tool(s) to call; there is no hard-coded SQL/RAG/Hybrid pipeline
+- 🔄 **Smart follow-ups**: an *Active Context* (product, `product_id`, metric, period, previous result) is injected only for follow-up questions
+- 🎯 **Evidence first**: numbers come from SQL, customer voice from RAG, guidance from the knowledge base; the agent only combines them
+- 🕒 **Deterministic time semantics**: all relative periods ("last 30 days") are anchored to a configurable *dataset reference date* instead of `NOW()`
+
+### 🧰 **Agent Toolkit**
+```
+tools.py  (Tool Calling gateway)
+├─ tool_sql             → validated, read-only PostgreSQL analytics
+├─ tool_rag             → semantic search over customer reviews (pgvector)
+├─ tool_chart           → charts built on top of validated SQL results
+└─ tool_knowledge_base  → management playbooks (Markdown documents)
+```
+
+| Tool | Answers the question | Source of truth |
+|------|----------------------|-----------------|
+| **tool_sql** | *What happened?* | PostgreSQL analytics DB |
+| **tool_rag** | *What do customers say?* | `comments` + `comments_embedding` (pgvector) |
+| **tool_chart** | *Show me visually* | Result of a validated SQL query |
+| **tool_knowledge_base** | *Which management practice applies?* | Markdown knowledge documents |
+
+The agent may call several tools in one round; every raw result is compacted before it re-enters the LLM context, while the raw evidence is kept separately for audit.
+
+### 🛡️ **Answer Audit & Self-Correction**
+- ✅ Every final answer is scored for **grounded / faithfulness / relevance / confidence** against the real tool trace
+- 🔁 Score below threshold (`CORRECTION_THRESHOLD = 70`) → *retry* (re-reason with tools) or *correction* (rewrite the text only)
+- 🔍 A corrected answer is **validated again** before being returned; correction is capped at one attempt
+- 📊 Every evaluation is logged for later calibration
 
 ### 📊 **Multi-Modal Analytics**
 ```
 Data Analysis Toolkit
-├─ SQL Analytics → Direct PostgreSQL queries
-├─ RAG Search → Semantic customer review analysis  
-├─ Chart Generation → Interactive visualizations
-└─ Comparative Analysis → Period-over-period insights
+├─ SQL Analytics → rankings, aggregations, time-series (Production SQL Validator)
+├─ RAG Search → semantic customer review analysis (multilingual-e5-base, 768-d)
+├─ Chart Generation → interactive visualizations on validated data
+└─ Knowledge Base → management guidance to turn evidence into recommendations
 ```
 
 | Feature | Capability |
 |---------|-----------|
-| **SQL Analytics** | Complex aggregations, rankings, time-series |
-| **Semantic Search** | Customer review analysis with embeddings |
-| **Time-Series** | 30-day rolling windows & custom periods |
-| **Comparisons** | Month-over-month and year-over-year trends |
+| **SQL Analytics** | Complex aggregations, rankings with deterministic tie-breakers, time-series |
+| **Semantic Search** | Persian review retrieval, Top-K = 20, compact keyword + representative-comment summary |
+| **Time-Series** | Rolling windows anchored to the dataset reference date (`2023-03-01`) |
+| **Comparisons** | Period-over-period and month-over-month trends |
 
 ### 📈 **Executive Dashboards**
 ```
@@ -85,10 +110,11 @@ Real-Time Intelligence
 ```
 
 ### 💾 **Persistent Conversation Memory**
-- 🗄️ **PostgreSQL Backend**: Reliable, scalable storage
-- 🤖 **LLM-Powered Compaction**: Intelligent summarization of old turns
-- 📊 **Evaluation Logging**: Track confidence, faithfulness, relevance
-- 📈 **Calibration Monitoring**: Understand model reliability over time
+- 🗄️ **PostgreSQL backend**: `chat_memory` (JSONB) in a separate database/role from the read-only analytics DB
+- 🤖 **LLM-powered compaction**: only the last `CHAT_MEMORY_MAX_RAW_TURNS` turns stay raw; older turns become a structured summary that preserves `product_id`, metric and period
+- ⚛️ **Atomic saves**: messages are appended/merged, so concurrent requests cannot overwrite each other
+- 📊 **Evaluation logging**: confidence, faithfulness and relevance per turn (`eval_log`)
+- 🧯 **Failure isolation**: a failed summarization or evaluation log never breaks the user's answer
 
 ---
 
@@ -99,50 +125,65 @@ Real-Time Intelligence
 ┌──────────────────────────────────────────────────────────┐
 │           🖥️  Frontend (React + Vite)                   │
 │          rahin_front_ai/                                 │
-│  ┌──────────────────────────────────────────┐           │
-│  │ • Dashboards    • Chat Interface        │           │
-│  │ • Charts        • Real-time Updates     │           │
-│  └──────────────────────────────────────────┘           │
+│   • Dashboards   • Chat Interface   • Charts             │
 └────────────────────┬─────────────────────────────────────┘
-                     │ HTTP/WebSocket
+                     │ HTTP
                      ▼
 ┌──────────────────────────────────────────────────────────┐
 │        🚀 FastAPI Backend (api.py)                      │
-│  ┌──────────────────────────────────────────┐           │
-│  │ POST /api/chat          (Main endpoint)  │           │
-│  │ GET  /api/dashboard     (Dashboard data) │           │
-│  │ GET  /api/brand-intel   (Brand metrics)  │           │
-│  │ GET  /api/category-intel (Categories)    │           │
-│  │ GET  /api/segments      (Customer segs)  │           │
-│  └──────────────────────────────────────────┘           │
-│                   ▲                                       │
-│         ┌─────────┼─────────┐                            │
-│         │         │         │                            │
-└─────────┼─────────┼─────────┼────────────────────────────┘
-          │         │         │
-          ▼         ▼         ▼
-    ┌─────────┐ ┌──────────┐ ┌──────────────────┐
-    │ 🧠 Main │ │ 💾 Memory│ │ ⚙️  Agentic     │
-    │ Agent   │ │ Store    │ │    Graph        │
-    │ (main)  │ │ (memory) │ │ (LangGraph)     │
-    └────┬────┘ └──────────┘ └────────┬────────┘
-         │                             │
-         └──────────────┬──────────────┘
-                        │
-        ┌───────────────┼───────────────┐
-        │               │               │
-        ▼               ▼               ▼
-    ┌────────┐     ┌────────┐    ┌──────────┐
-    │📊 SQL  │     │🔍 RAG  │    │📈 Chart  │
-    │Tool    │     │Tool    │    │ Tool     │
-    └───┬────┘     └───┬────┘    └──────────┘
-        │              │
-        └──────────────┼──────────────┐
-                       │              │
-                ┌──────▼─────┐  ┌────▼───────┐
-                │ PostgreSQL │  │ Embeddings │
-                │(Analytics) │  │  Model     │
-                └────────────┘  └────────────┘
+│   /api/chat  /api/dashboard  /api/brand-intelligence     │
+│   /api/category-intelligence  /api/customer-segments     │
+└────────────────────┬─────────────────────────────────────┘
+                     ▼
+┌──────────────────────────────────────────────────────────┐
+│   main.py  →  Startup + per-request lifecycle            │
+│   Load memory → Active Context → Graph → Save → Evaluate │
+└───────┬──────────────────────────────────┬───────────────┘
+        │                                  │
+        ▼                                  ▼
+┌──────────────────┐            ┌────────────────────────────┐
+│ 💾 memory_store  │            │ ⚙️  LangGraph (Graph/)     │
+│ chat_memory      │            │                            │
+│ eval_log         │            │  agent ⇄ tools (ReAct)     │
+│ (write role)     │            │     ↓                      │
+└──────────────────┘            │  finalize → validate       │
+                                │     ↓ (retry / correct)    │
+                                │    END                     │
+                                └─────────────┬──────────────┘
+                                              │ tools.py
+              ┌───────────────┬───────────────┼────────────────┐
+              ▼               ▼               ▼                ▼
+        ┌──────────┐   ┌────────────┐  ┌───────────┐   ┌────────────┐
+        │📊 SQL    │   │🔍 Vector   │  │📈 Chart   │   │📚 Knowledge│
+        │sql_agent │   │retriever   │  │chart_agent│   │Base agent  │
+        └────┬─────┘   └─────┬──────┘  └─────┬─────┘   └────────────┘
+             ▼               │               │
+   ┌──────────────────┐      │               │
+   │ Production SQL   │      │               │
+   │ Validator (AST)  │      │               │
+   └────────┬─────────┘      │               │
+            ▼                ▼               │
+      ┌─────────────────────────────┐        │
+      │ db.py (read-only pool)      │◄───────┘
+      │ PostgreSQL + pgvector       │
+      └─────────────────────────────┘
+```
+
+### Request Lifecycle
+```
+Question
+  ↓
+main.run(): load memory → build messages (system prompt once) → extract Active Context
+  ↓                                  → add question → compact history if needed
+LangGraph ReAct loop  (max 6 iterations, max 3 consecutive tool errors)
+  agent ──tool calls──► tools_node ──compact result──► agent ...
+  ↓ (no more tool calls)
+finalize → validate (audit)
+  ├─ OK ─────────────────────────────► answer
+  ├─ low score → retry (re-reason) ──► loop
+  └─ low score → correct (rewrite) ──► validate again ──► answer
+  ↓
+save_messages → log_evaluation (best-effort)
 ```
 
 ### Component Breakdown
@@ -150,11 +191,58 @@ Real-Time Intelligence
 | Layer | Component | Technology |
 |-------|-----------|-----------|
 | **Presentation** | React Frontend | React 18, Vite, JavaScript |
-| **API** | FastAPI Server | FastAPI, Python 3.10+, AsyncIO |
-| **Agent** | LangGraph Engine | LangGraph, LangChain, OpenAI |
-| **Memory** | Chat Storage | PostgreSQL, JSONB |
-| **Analytics** | Tools | SQL, RAG, Chart Generation |
-| **Data** | Databases | PostgreSQL (Read + Write Pools) |
+| **API** | FastAPI Server | FastAPI, Python 3.10+ |
+| **Agent** | LangGraph ReAct Engine | LangGraph, OpenAI-compatible chat/tool-calling API |
+| **LLM** | Configurable provider | `AGENT_LLM_MODEL` (default `openai/gpt-oss-120b`) |
+| **Embeddings** | Local model | `intfloat/multilingual-e5-base` (sentence-transformers, 768-d) |
+| **SQL Safety** | Production SQL Validator | sqlglot AST analysis, dynamic schema introspection |
+| **Memory** | Chat storage | PostgreSQL, JSONB, separate write-capable role |
+| **Data** | Analytics DB | PostgreSQL + pgvector (read-only pool) |
+
+---
+
+## 🛡️ Reliability & Guardrails
+
+### SQL Safety (defense in depth)
+```
+LLM-generated SQL
+  ↓
+1. ProductionSQLValidator (sqlglot AST)
+   ├─ single SELECT / WITH…SELECT only, no multi-statement
+   ├─ allowed tables + real schema (introspected from PostgreSQL)
+   ├─ allowed join pairs & keys, no comma joins
+   ├─ fan-out protection (parent/child joins, multi-child joins)
+   ├─ no direct SUM/AVG on ratio columns (weighted average hint)
+   ├─ division-by-zero safety (NULLIF)
+   └─ deterministic Top-N (stable tie-breaker such as product_id)
+  ↓
+2. Read-only connection (default_transaction_read_only)
+3. statement_timeout  (STATEMENT_TIMEOUT_MS, default 60000 ms)
+4. HARD_MAX_ROWS = 200  → result marked truncated + total row count reported
+```
+Validator errors explain both the problem and the fix, so the agent can self-correct in the next ReAct round.
+
+### Agent Loop Protection
+| Guard | Value | Purpose |
+|-------|-------|---------|
+| `MAX_ITERATIONS` | 6 | Stops unbounded reasoning / token burn |
+| `MAX_CONSECUTIVE_TOOL_ERRORS` | 3 | Circuit breaker when every tool call keeps failing |
+| `MAX_CORRECTION_RETRIES` | 1 | One rewrite, then re-validation |
+| `CORRECTION_THRESHOLD` | 70 | Minimum audit score to accept an answer |
+
+### Context & Cost Control
+- 📉 Raw tool results are **compacted** before entering the LLM context (raw evidence is stored separately)
+- 🧾 The DB schema lives only in `tool_sql`'s definition (not repeated per tool)
+- 💬 RAG output is compressed without an LLM (keywords + representative comments with `comment_id`)
+- 🗜️ Old conversation turns are summarized, never blindly resent
+- ⏱️ 429 rate limits: exponential backoff (2s, 4s, 8s, 16s) via `LLM_RATE_LIMIT_MAX_RETRIES` / `LLM_RATE_LIMIT_BASE_DELAY`
+
+### Time Semantics
+The dataset is a historical snapshot, so the reference date is configuration, not `NOW()`:
+`DATASET_REFERENCE_DATE` (default **2023-03-01**). Ranges use the half-open convention `[start, end)`; the reference day is included by using `< reference + INTERVAL '1 day'`.
+
+### Correlation vs. Causation
+The system prompt requires evidence-based explanations: SQL numbers and retrieved customer comments are reported as *observed signals*, and the answer must not invent causes that the evidence does not support. The audit layer flags answers that are not grounded in the tool trace.
 
 ---
 
@@ -164,100 +252,96 @@ Real-Time Intelligence
 
 ```bash
 ✅ Python 3.10 or higher
-✅ Node.js 18 or higher  
-✅ PostgreSQL 13 or higher
-✅ OpenAI API Key
+✅ Node.js 18 or higher
+✅ PostgreSQL 13 or higher with the pgvector extension
+✅ An API key for an OpenAI-compatible LLM provider (tool calling required)
 ```
 
 ### 1️⃣ Clone & Setup Environment
 
 ```bash
-# Clone the repository
 git clone https://github.com/Rainsh724/ai-customer-behavior-analytics-platform.git
 cd ai-customer-behavior-analytics-platform
-
-# Create environment file
 cp .env.example .env
 ```
 
 ### 2️⃣ Configure `.env` File
 
 ```env
-# 🗄️ Analytics Database (Read-Only)
+# 🗄️ Analytics Database (Read-Only role)
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=analytics_db
 DB_USER=analytics_reader
 DB_PASSWORD=your_secure_password
+STATEMENT_TIMEOUT_MS=60000
 
-# 💬 Chat Memory Database (Write)
+# 💬 Chat Memory Database (Write-capable role)
 CHAT_DB_HOST=localhost
 CHAT_DB_PORT=5432
 CHAT_DB_NAME=postgres
 CHAT_DB_USER=app_chat_writer
 CHAT_DB_PASSWORD=your_secure_password
+CHAT_DB_CONNECT_TIMEOUT=10
 
-# 🤖 LLM Configuration
-OPENAI_API_KEY=sk-your-key-here
-LLM_MODEL=gpt-4-turbo-preview
-EMBEDDING_MODEL=text-embedding-3-small
+# 🤖 LLM (OpenAI-compatible provider: API key / base URL variable names as in .env.example)
+AGENT_LLM_MODEL=openai/gpt-oss-120b
+LLM_RATE_LIMIT_MAX_RETRIES=4
+LLM_RATE_LIMIT_BASE_DELAY=2
+
+# 🔎 Local embedding model (intfloat/multilingual-e5-base, 768-d)
+# After the first successful download you can run fully offline:
+# HF_HUB_OFFLINE=1
+# HF_TOKEN=your_hf_token   # optional, avoids Hub rate limits on first download
+
+# 🕒 Dataset time
+DATASET_REFERENCE_DATE=2023-03-01
 
 # ⚙️ Cache & Memory
 DASHBOARD_CACHE_TTL_SECONDS=300
 CHAT_MEMORY_MAX_RAW_TURNS=3
-CHAT_DB_CONNECT_TIMEOUT=10
 ```
 
-### 3️⃣ Install Backend Dependencies
+### 3️⃣ Prepare the Databases
+
+- The analytics database must already contain the data tables and the `comments_embedding` table (768-d vectors created with the same e5 model used at query time).
+- At runtime the application **does not create tables**; it only verifies that `public.chat_memory` exists. Create it once with an admin role (SQL in [Database Schema](#️-database-schema)).
+
+### 4️⃣ Install Backend Dependencies
 
 ```bash
-# Create virtual environment
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install packages
 pip install -r requirements.txt
-
-# Initialize database schema
-python -c "from main import main; main()"
 ```
 
-### 4️⃣ Start Backend Server
+### 5️⃣ Start Backend Server
 
 ```bash
-# Run with auto-reload for development
 uvicorn api:app --reload --port 8000
-
+# Startup preloads the embedding model, checks chat_memory, ensures the eval schema
+# and refreshes the SQL validator from the real database schema.
 # Server runs at: http://localhost:8000
 ```
 
-### 5️⃣ Install Frontend Dependencies
+### 6️⃣ Install & Start Frontend
 
 ```bash
-# Install Node packages
+cd rahin_front_ai
 npm install
-
-# Start development server
 npm run dev
-
 # Frontend runs at: http://localhost:5173
 ```
 
-### 6️⃣ Verify Everything Works
+### 7️⃣ Verify Everything Works
 
 ```bash
-# ✅ Check API health
 curl http://localhost:8000/api/health
 
-# ✅ Test chat endpoint
 curl -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \
-  -d '{
-    "message": "کدام محصولات بیشترین فروش را دارند؟",
-    "session_id": "test-session-001"
-  }'
+  -d '{"message": "کدام محصولات بیشترین فروش را دارند؟", "session_id": "test-session-001"}'
 
-# ✅ Load dashboard data
 curl http://localhost:8000/api/dashboard
 ```
 
@@ -265,34 +349,30 @@ curl http://localhost:8000/api/dashboard
 
 ## 💻 Tech Stack
 
-### 🐍 Backend Python Stack
+### 🐍 Backend
 ```
-FastAPI          → Modern, async web framework
-LangGraph        → Agent orchestration & state management
-LangChain        → LLM tooling & chains
-OpenAI           → GPT-4 Turbo & text-embedding-3-small
-PostgreSQL       → Persistent storage (dual connection pools)
-Psycopg2         → Python PostgreSQL adapter
+FastAPI          → API layer
+LangGraph        → ReAct agent orchestration & state management
+OpenAI-compatible client → chat completions + tool calling (provider is swappable via config)
+sentence-transformers    → local multilingual-e5-base embeddings (768-d)
+sqlglot          → AST-based SQL validation
+PostgreSQL       → analytics data, chat memory, evaluation log
+pgvector         → cosine similarity search over review embeddings
+Psycopg2         → PostgreSQL adapter (pooled connections)
 Pandas           → Data manipulation & export
 ```
 
-### 🎨 Frontend Stack
+### 🎨 Frontend
 ```
-React 18         → UI framework
-Vite             → Fast build tool
-JavaScript       → Dynamic interactions
-CSS3             → Responsive styling
-Chart.js         → Data visualization
-Axios            → HTTP client
+React 18 · Vite · JavaScript · CSS3 · Chart.js · Axios
 ```
 
-### 📊 Data & Analytics Stack
+### 📊 Data & Analytics
 ```
-PostgreSQL       → Relational database
-Vector Embeddings → Semantic search
-LLM Models       → OpenAI API
-SQL Queries      → Complex aggregations
+PostgreSQL       → Relational analytics + kpi schema
+pgvector         → Semantic search on Persian comments
 Window Functions → Time-series analysis
+Markdown KB      → Management playbooks (retrieval via tool_knowledge_base)
 ```
 
 ---
@@ -301,57 +381,26 @@ Window Functions → Time-series analysis
 
 ### 💬 How to Ask Questions
 
-The AI assistant understands various query types:
-
 ```
 ✅ Metrics Queries
 "Show me top 10 products in the last 30 days"
 
-✅ Causal Questions  
-"Why did sales drop for brand X?"
-
-✅ Comparative Analysis
-"Which category has the best conversion rate?"
+✅ Explanatory Questions (evidence-based, not causal claims)
+"Why did sales drop for brand X?"  → SQL trend + customer comments
 
 ✅ Smart Follow-ups
 User: "What products sold best?"
-Agent: [Returns top products]
-User: "Why?" ← Automatically knows you mean "Why did these products sell best?"
+User: "Why?"  ← keeps the same products, metric and period
 
-✅ Visualization Requests
+✅ Visualization Requests (only when a chart is explicitly requested)
 "Show me a chart of monthly sales trends"
 
-✅ Recommendations
+✅ Recommendations (SQL + RAG + Knowledge Base)
 "What should we do to improve customer retention?"
 ```
 
 ### 🔄 Follow-Up Context Preservation
-
-The system automatically remembers:
-
-```
-📊 Product Info
-├─ Product ID and name
-├─ Category
-└─ Brand
-
-📈 Metrics
-├─ Units sold
-├─ Revenue
-├─ Conversion rate
-└─ Satisfaction score
-
-⏰ Time Periods
-├─ Last 7 days
-├─ Last 30 days
-├─ Custom date range
-└─ Month-over-month
-
-💾 Previous Results
-├─ Ranking positions
-├─ Numerical values
-└─ Trend direction
-```
+The Active Context extracted from the last *successful* turn contains: product name / `product_id`, metric, time period and the previous result (ranking positions, values, trend). It is injected only when the new question is detected as a follow-up, which keeps prompts small.
 
 ### 📊 Dashboard Pages
 
@@ -439,7 +488,7 @@ GET /api/health
 
 #### Chat Memory Tables
 ```sql
--- Conversation history storage
+-- Conversation history storage (create once with an admin role)
 CREATE TABLE public.chat_memory (
   chat_id TEXT PRIMARY KEY,
   messages JSONB NOT NULL,
@@ -462,14 +511,14 @@ CREATE TABLE public.eval_log (
 
 #### Analytics Database (Read-Only)
 ```sql
--- Core tables you query through the platform
-user_behavior_logs  → Customer actions (views, purchases, cart)
-products            → Product catalog with prices & metadata
-categories          → Product categorization
-brands              → Brand information
-comments            → Customer reviews & ratings
-kpi.ml_user_clusters → Behavioral segments (ML-generated)
+-- Core tables queried through tool_sql / tool_rag
+products, brands, categories, sellers, cities   → catalog & dimensions
+users, sessions, user_behavior_logs              → customer actions (views, purchases, cart)
+comments, comment_aspects                        → customer reviews & extracted aspects
+comments_embedding                               → 768-d e5 vectors for pgvector search
+analytics / kpi schemas (e.g. kpi.ml_user_clusters) → aggregates & ML behavioral segments
 ```
+The validator loads the real schema and foreign keys from PostgreSQL at startup (`schema_introspector.py`), with architecture-specific join rules kept alongside them.
 
 ---
 
@@ -536,29 +585,31 @@ kpi.ml_user_clusters → Behavioral segments (ML-generated)
 │      PostgreSQL Database Server             │
 │                                             │
 │  🔐 Analytics Role (Read-Only)              │
-│     └─ SELECT only on data tables           │
-│     └─ Cannot modify data                   │
+│     └─ SELECT only, read-only transactions  │
+│     └─ statement_timeout enforced           │
+│     └─ used by SQL tool & vector search     │
 │                                             │
-│  🔓 Chat Role (Write-Capable)               │
-│     └─ SELECT/INSERT on chat_memory         │
-│     └─ SELECT/INSERT on eval_log            │
+│  🔓 Chat Role (Write-Capable, separate DB)  │
+│     └─ SELECT/INSERT/UPDATE on chat_memory  │
+│     └─ INSERT on eval_log                   │
 │     └─ No access to analytics data          │
 │                                             │
 └─────────────────────────────────────────────┘
 ```
+The application follows least privilege: it never issues `CREATE TABLE` at runtime.
 
 ### Application Security
-- ✅ **Input Validation**: Strict validation on all user inputs
+- ✅ **AST-based SQL validation** before any LLM-generated query is executed
+- ✅ **Read-only execution + timeout + row cap** independent of the prompt
+- ✅ **Parameterized queries** for internal filters (e.g. `product_id` in vector search)
 - ✅ **CORS Protection**: Configurable origin whitelist
 - ✅ **Environment Variables**: Secrets never in code
-- ✅ **Connection Pooling**: Efficient resource management
-- ✅ **SQL Injection Prevention**: Parameterized queries throughout
+- ✅ **Import without side effects**: no DB connection is opened at import time; pools are lazy
 
 ---
 
 ## ⚡ Performance Optimization
 
-### Caching Strategy
 ```
 Dashboard Cache (5-min TTL)
 ├─ Pre-warmed on startup
@@ -567,16 +618,21 @@ Dashboard Cache (5-min TTL)
 └─ Thread-safe with locks
 
 Query Optimization
-├─ SQL tie-breakers for deterministic results
+├─ Deterministic tie-breakers for Top-N
 ├─ Minimum sample filters (view_cnt >= 30)
-├─ Pre-aggregation before JOINs
+├─ Pre-aggregation of child tables before JOINs
 └─ Strategic indexing on hot columns
 
-Memory Management
-├─ Automatic conversation compaction
-├─ LLM-powered summarization
-├─ JSONB efficient storage
-└─ Configurable max raw turns (default: 3)
+LLM / Token Optimization
+├─ Compact tool results, raw evidence kept out of context
+├─ Schema defined once (tool_sql only)
+├─ Non-LLM RAG summarization
+├─ Conversation compaction (last N raw turns + summary)
+└─ Exponential backoff on 429 rate limits
+
+Startup vs. Hot Path
+├─ Embedding model preloaded at startup
+└─ SQL validator refreshed from the real schema at startup
 ```
 
 ---
@@ -587,18 +643,26 @@ Memory Management
 ai-customer-behavior-analytics-platform/
 │
 ├── 🐍 Backend (Python)
-│   ├── main.py                    # Agent orchestration & follow-up logic
+│   ├── main.py                    # Startup, per-request lifecycle, system prompt, Active Context
 │   ├── api.py                     # FastAPI endpoints & caching layer
-│   ├── memory_store.py            # PostgreSQL-backed conversation memory
+│   ├── memory_store.py            # PostgreSQL-backed conversation memory + eval log
 │   │
-│   └── Graph/                     # LangGraph agent implementation
-│       ├── graph.py               # State machine definition
-│       ├── nodes.py               # Decision nodes
-│       ├── sql_agent.py           # 📊 SQL tool
-│       ├── rag_agent.py           # 🔍 RAG tool
+│   └── Graph/                     # LangGraph ReAct agent implementation
+│       ├── state.py               # GraphState shared between nodes
+│       ├── nodes.py               # agent / tools / finalize / validate / safe nodes
+│       ├── graph.py               # Graph wiring & routing (loop guards, retry/correct)
+│       ├── tools.py               # Tool definitions + dispatcher (tool calling gateway)
+│       ├── sql_agent.py           # 📊 SQL execution boundary (validate → run)
+│       ├── production_validator.py# 🛡️ AST-based SQL validator
+│       ├── schema_introspector.py # Real schema / FK extraction from PostgreSQL
+│       ├── vector_retriever.py    # 🔍 RAG: e5 embedding + pgvector Top-K
+│       ├── text_summary.py        # Non-LLM compression of retrieved comments
 │       ├── chart_agent.py         # 📈 Chart tool
-│       ├── llm_client.py          # OpenAI API wrapper
-│       └── db.py                  # Database connections
+│       ├── knowledge_base_agent.py# 📚 Management knowledge tool
+│       ├── audit.py               # Answer validation & correction
+│       ├── dataset_time.py        # Dataset reference date & time contract
+│       ├── llm_client.py          # LLM calls, rate-limit retry, local embeddings
+│       └── db.py                  # Read-only pool, timeout, vector search
 │
 ├── 🎨 Frontend (React)
 │   └── rahin_front_ai/
@@ -622,6 +686,17 @@ ai-customer-behavior-analytics-platform/
 ---
 
 ## 🐛 Troubleshooting
+
+### LLM Errors (429 / 413)
+- **429 RateLimitError**: the client retries with exponential backoff; daily token limits (TPD) may require waiting or switching provider/model via `AGENT_LLM_MODEL`.
+- **413 Request too large**: means the LLM context grew too much (very large tool results or history). Results are compacted and history is summarized by default; check `CHAT_MEMORY_MAX_RAW_TURNS`.
+
+### Embedding Model Fails to Load
+```bash
+# After one successful download, run offline from the local cache
+export HF_HUB_OFFLINE=1
+```
+Query embeddings must come from the same model as the stored `comments_embedding` vectors (multilingual-e5-base, 768-d, `query:` prefix).
 
 ### API Not Responding
 ```bash
@@ -683,7 +758,7 @@ This project is licensed under the **MIT License**.
 
 [🔝 Back to Top](#-ai-customer-behavior-analytics-platform)
 
-![Last Updated](https://img.shields.io/badge/Last%20Updated-2025-green?style=flat-square)
+![Last Updated](https://img.shields.io/badge/Last%20Updated-2026-green?style=flat-square)
 ![Maintained](https://img.shields.io/badge/Maintained%3F-Yes-green?style=flat-square)
 
 </div>
