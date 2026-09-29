@@ -25,7 +25,6 @@ Tools:
 - tool_sql: Run valid PostgreSQL queries for numeric, aggregation, and structural analytics.
 - tool_rag: Search customer reviews using search_topic, optional product_id, and optional sentiment ('negative'|'positive').
 - tool_chart: Build visualization data from SQL when user explicitly requests a chart/graph.
-- tool_knowledge_base: Search management consulting principles ONLY when user explicitly asks for strategic advice or action plans.
 
 # ==========================================
 # 1. ORCHESTRATION & TOOL WORKFLOW (Think-and-Execute)
@@ -83,11 +82,10 @@ RAGRules:
   SentimentFilter: Set sentiment='negative' for complaints/defects/drops; set sentiment='positive' for praises/strengths. (Automatic Direct Fetch returns 100% exact text if matching reviews <= 5).
 
 # ==========================================
-# 5. CHARTS & KNOWLEDGE BASE
+# 5. CHARTS
 # ==========================================
 SpecialTools:
   Charts: Call tool_chart ONLY when user explicitly asks for chart/graph/visualization/نمودار. Never output raw JSON, configs, or code in text response.
-  KnowledgeBase: Call tool_knowledge_base ONLY when user explicitly asks for strategic advice, consulting recommendations, or retention tactics ("چه پیشنهادی داری؟", "راهکار چیه؟"). Do NOT invoke for purely diagnostic questions ("علتش چیست؟").
 
 # ==========================================
 # 6. MANAGERIAL OUTPUT DIRECTIVES
@@ -96,7 +94,7 @@ OutputDirectives:
   Language: Persian (فارسی کاملاً روان، دقیق، خلاصه و مدیریتی).
   Format: Professional executive presentation. Never show raw JSON, SQL syntax, or tool traces.
   Groundedness: All numbers, rates, and findings MUST come directly from tool outputs. Never guess or hallucinate unbacked data. Correlation is not definite causation.
-  Consulting: When user requests business advice, provide thoughtful, practical retention/marketing recommendations based on customer segments. Never apologize with tool limitation excuses.
+  Consulting: When user requests business advice, strategic suggestions, or action plans ("چه پیشنهادی داری؟", "راهکار چیه؟"), formulate practical, high-impact managerial recommendations (e.g. targeted review collection campaigns, bundle offers, pricing adjustments, UX/PDP optimizations, churn prevention) directly based on the observed data. Do NOT invoke unnecessary tools for opinion or advice requests. Never apologize with tool limitation excuses.
   EntityNames: Always include real Persian entity names (brand_name, category_name, product_title) alongside IDs when provided."""
 
 # Backwards compatibility alias
@@ -551,83 +549,6 @@ def _extract_active_context(
     return context
 
 
-def _build_follow_up_system_context(
-    context: dict[str, Any],
-) -> str:
-    """
-    Provides the active context to the Agent as a system message.
-
-    This section is intentionally explicit to prevent the LLM
-    from freely reinterpreting the existing context.
-    """
-
-    product_id = context.get("product_id")
-    product_title = context.get("product_title")
-    metric = context.get("metric")
-    metric_label = context.get("metric_label")
-    period_start = context.get("period_start")
-    period_end = context.get("period_end")
-    period_label = context.get("period_label")
-    previous_result = context.get("previous_result")
-
-    lines = [
-        "[ACTIVE CONVERSATION CONTEXT]",
-        "This context was extracted from a previously validated result.",
-        "For follow-up questions, you MUST preserve this context exactly.",
-    ]
-
-    if product_id is not None:
-        lines.append(f"product_id = {product_id}")
-
-    if product_title:
-        lines.append(f"product_title = {product_title}")
-
-    if metric:
-        lines.append(f"metric = {metric}")
-
-    if metric_label:
-        lines.append(f"metric_label = {metric_label}")
-
-    if period_label:
-        lines.append(f"period_label = {period_label}")
-
-    if period_start:
-        lines.append(f"period_start = {period_start}")
-
-    if period_end:
-        lines.append(f"period_end = {period_end}")
-
-    if previous_result is not None:
-        lines.append(f"previous_result = {previous_result}")
-
-    lines.extend(
-        [
-            "",
-            "IMPORTANT RULES:",
-            "If the current question is a short follow-up question, do NOT modify the context above.",
-            "Do NOT reinterpret the product, product_id, metric, or time period.",
-            "If the user asks 'Why?', treat it as a continuation of the previous question.",
-            "For a 'Why?' question, do NOT create a new ranking or a new time range.",
-            "",
-            "IMPORTANT EXCEPTION:",
-            "If the current question asks for an opinion, recommendation, idea, or advice "
-            "(for example: 'What do you think?', 'What should I do?', "
-            "'Do you have any ideas?', 'What is your recommendation?'), "
-            "the user has switched from a data reporting mode to a management consulting mode.",
-            "",
-            "In this case, keep the context above (product/metric/time period) "
-            "as the subject of the recommendation, but do NOT generate another SQL query "
-            "just to retrieve more details about the same data.",
-            "",
-            "According to System Prompt Rule 8, call tool_knowledge_base first and use "
-            "its business knowledge together with the available conversation data "
-            "to provide a practical management recommendation or idea.",
-            "Do NOT return another data table instead of a strategic recommendation.",
-        ]
-    )
-
-    return "\n".join(lines)
-
 def _prepare_conversation(
     question: str,
     chat_id: str | None = None,
@@ -721,24 +642,7 @@ def _prepare_conversation(
     }
 
     # =========================================================
-    # 4. Add explicit active context ONLY for follow-up
-    # =========================================================
-
-    if is_follow_up:
-
-        active_context_text = _build_follow_up_system_context(
-            conversation_context
-        )
-
-        messages.append(
-            {
-                "role": "system",
-                "content": active_context_text,
-            }
-        )
-
-    # =========================================================
-    # 5. Add current user question
+    # 4. Add current user question
     # =========================================================
 
     messages.append(
@@ -749,7 +653,7 @@ def _prepare_conversation(
     )
 
     # =========================================================
-    # 6. Compact only when necessary
+    # 5. Compact only when necessary
     # =========================================================
 
     messages = memory_store.maybe_compact(messages)

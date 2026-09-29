@@ -5,7 +5,6 @@ import time
 import functools
 import json
 import logging
-from os import name
 from typing import Any, Callable
 
 from .state import GraphState
@@ -108,6 +107,11 @@ MAX_SUBQUESTIONS = int(os.getenv("MULTI_QUESTION_MAX_PARTS", "4"))
 # سقف دور agent<->tools برای *هر بخش* (کمتر از MAX_ITERATIONS کلی، چون
 # هر بخش قاعدتاً باید ساده‌تر از کل سوال چندبخشی باشه).
 SUBQUESTION_MAX_ITERATIONS = int(os.getenv("MULTI_QUESTION_SUBITERATIONS", "4"))
+
+# سقف نهایی حجم context LLM (بر حسب تعداد کاراکتر JSON‌شده‌ی پیام‌ها).
+# عمداً پایین‌تر از سقف TPM ارائه‌دهنده نگه داشته می‌شه تا tool definitions
+# و overhead API هم فضای امن داشته باشند. قابل تنظیم از .env.
+MAX_LLM_MESSAGE_CHARS = int(os.getenv("MAX_LLM_MESSAGE_CHARS", "24000"))
 
 MULTI_QUESTION_SPLIT_PROMPT = """You determine whether a user prompt contains multiple INDEPENDENT questions that must be processed separately, or is a single question.
 
@@ -937,10 +941,9 @@ def _build_followup_control_message(
         "EXCEPTION: If this question asks for an opinion, recommendation, "
         "idea, or advice (for example: 'What do you think?', 'What should I do?', "
         "'Do you have any ideas?'), do NOT create a new SQL query to further "
-        "analyze the same data. According to Rule 8, call tool_knowledge_base "
-        "first and use the context below (product/metric/time period) to provide "
-        "a practical management recommendation or business idea, not another "
-        "data table.",
+        "analyze the same data. Directly formulate practical, high-impact management "
+        "recommendations, customer retention tactics, or marketing ideas using the "
+        "context below (product/metric/time period), not another data table.",
     ]
 
     if conversation_context.get("product_id") is not None:
@@ -1161,12 +1164,9 @@ def _build_bounded_llm_messages(
     ]
 
     # ---------------------------------------------------------
-    # سقف نهایی context.
-    #
-    # Groq روی این مدل سقف 8000 TPM دارد. عمداً پایین‌تر از آن
-    # نگه می‌داریم تا tool definitions و overhead API هم فضای امن داشته باشند.
+    # سقف نهایی context -- از ثابت سطح ماژول MAX_LLM_MESSAGE_CHARS استفاده می‌شه
+    # (قابل تنظیم از .env با کلید MAX_LLM_MESSAGE_CHARS، پیش‌فرض ۲۴۰۰۰).
     # ---------------------------------------------------------
-    MAX_LLM_MESSAGE_CHARS = 24000
 
     def _message_size(message: dict[str, Any]) -> int:
         return len(
@@ -1593,7 +1593,7 @@ def tools_node(state: GraphState) -> dict[str, Any]:
                     "summary": (
                         result.get("error")
                         if not ok
-                        else compact_tool_result(name, result)
+                        else compact_result  # ← از متغیر قبلاً محاسبه‌شده استفاده می‌کنیم
                     ),
         }
         if name == "tool_chart" and ok:
@@ -1717,6 +1717,7 @@ def finalize_node(state: GraphState):
             "- Always use real entity names (brand_name, category_name, product_title) whenever provided in the tool results.\n"
             "- If the available tool results are not sufficient to fully answer some parts, state factually that no data was found for those parts. "
             "Report all verified findings completely without discarding supported data.\n"
+            "- If user requested strategic advice, recommendations, or solutions, synthesize practical, actionable business strategies (e.g. review campaigns, customer retention, bundling, UX/pricing improvements) grounded in the observed data.\n"
             "- Never present correlation as definite causation."
         ),
     }

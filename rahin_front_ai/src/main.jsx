@@ -1166,16 +1166,15 @@ function Assistant() {
                           </ReactMarkdown>
 
                           {m.chart && (<ChatChart chart={m.chart} />)}
-                          {isError && (<div className="message-error-box"><span>{m.error ||"پاسخی از سرویس دریافت نشد."}</span>
-                              <button
-                                className="retry-message-btn"
-                                onClick={() => retryMessage(m)}
-                                disabled={!!loadingSessions[active?.id]}title="تلاش مجدد"><RefreshCw /></button></div>)}
-                          
-                          {m.chart && (<ChatChart chart={m.chart} />)}
                           {isError && (
                             <div className="message-error-box">
                               <span>{m.error || "پاسخی از سرویس دریافت نشد."}</span>
+                              <button
+                                className="retry-message-btn"
+                                onClick={() => retryMessage(m)}
+                                disabled={!!loadingSessions[active?.id]}
+                                title="تلاش مجدد"
+                              ><RefreshCw /></button>
                             </div>
                           )}
                           {m.status !== "loading" && (

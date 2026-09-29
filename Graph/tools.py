@@ -5,10 +5,7 @@
 واقعی مربوطه رو صدا می‌زنه.
 
 ابزارهای فعال فعلی: tool_sql / tool_rag / tool_chart.
-ابزار غیرفعال (منتظر آماده‌شدن محتوا): tool_knowledge_base -- پایین همین
-فایل، هم در TOOL_DEFINITIONS هم در execute_tool_call، عمداً به‌صورت کامنت
-نگه داشته شده. نگاه کن به knowledge_base_agent.py برای توضیح کامل و
-نحوه‌ی فعال‌سازی.
+ابزار tool_knowledge_base جهت کاهش تاخیر و مصرف توکن، با دستورالعمل‌های مدیریتی پرامپت یکپارچه شده است.
 
 نکته درباره‌ی description تکراری اسکیما: SCHEMA_CONTEXT فقط یک‌بار، در
 description ابزار tool_sql، کامل نوشته می‌شه. description ابزار tool_chart
@@ -25,14 +22,7 @@ from .sql_agent import run_sql_tool, SCHEMA_CONTEXT
 from .vector_retriever import run_rag_tool
 from .chart_agent import run_chart_tool, VALID_CHART_TYPES
 
-# وقتی knowledge_base_agent.py آماده شد، این ایمپورت رو هم از حالت کامنت خارج کن:
-# تا وقتی نسخه‌ی واقعی run_knowledge_base_tool توسط بقیه‌ی اعضا آماده بشه،
-# از پلیس‌هولدر موقت استفاده می‌کنیم تا گراف قابل دیباگ باشه.
-# TODO: وقتی نسخه‌ی واقعی آماده شد، این خط رو به
-#   from .knowledge_base_agent import run_knowledge_base_tool
-# تغییر بده و در execute_tool_call پایین هم فراخوانی رو عوض کن.
-from .knowledge_base_agent import run_knowledge_base_tool_debug_placeholder as run_knowledge_base_tool
-
+# ابزارهای پایگاه‌دانش در حال حاضر به صورت یکپارچه در پرامپت تحلیلی سیستم ادغام شده‌اند.
 logger = logging.getLogger(__name__)
 
 
@@ -215,37 +205,6 @@ TOOL_DEFINITIONS: list[dict] = [
             },
         },
     },
- 
-    # tool_knowledge_base -- disabled until knowledge-base content is ready.
-    {
-        "type": "function",
-        "function": {
-            "name": "tool_knowledge_base",
-            "description": (
-                "Searches the training knowledge base for how to give "
-                "managerial suggestions (business-analysis "
-                "frameworks/principles). Before giving any suggestion or "
-                "managerial recommendation to the user, you must always "
-                "call this tool first, so you build your suggestion from "
-                "this knowledge plus your own general knowledge, not from "
-                "memory alone.\n\n"
-                "\u26a0\ufe0f A placeholder/debug version (a general, "
-                "generic summary) is currently active, not real vector "
-                "search -- until the rest of the team builds the final "
-                "version."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The topic/question to search for in the knowledge base.",
-                    }
-                },
-                "required": ["query"],
-            },
-        },
-    },
 ]
 
 def execute_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -279,7 +238,12 @@ def execute_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
             )
 
         if name == "tool_knowledge_base":
-            return run_knowledge_base_tool(query=arguments.get("query", ""))
+            return {
+                "message": (
+                    "نیازی به ابزار پایگاه دانش نیست. لطفاً پیشنهادات و توصیه‌های مدیریتی "
+                    "را مستقیماً بر اساس شواهد موجود در داده‌ها و اصول تحلیل کسب‌وکار تدوین کنید."
+                )
+            }
 
         return {"error": f"ابزار ناشناخته: {name}"}
 
