@@ -641,6 +641,23 @@ def sub_validate_node(
         question,
     )
 
+    faith = validation.get("faithfulness_score")
+    rel = validation.get("relevance_score")
+    conf = validation.get("confidence_score")
+    grounded = validation.get("grounded")
+    warnings = validation.get("warnings") or []
+
+    print("\n========== SUB-QUESTION AUDIT & VALIDATION ==========")
+    print(f"🎯 Faithfulness Score: {faith}/100" if faith is not None else "🎯 Faithfulness Score: N/A")
+    print(f"📌 Relevance Score:    {rel}/100" if rel is not None else "📌 Relevance Score:    N/A")
+    print(f"🔒 Confidence Score:   {conf}/100" if conf is not None else "🔒 Confidence Score:   N/A")
+    print(f"🛡️ Grounded:           {grounded}")
+    if warnings:
+        print(f"⚠️ Warnings ({len(warnings)}):")
+        for w in warnings:
+            print(f"   - {w}")
+    print("=====================================================\n")
+
     return {
         "sub_question_validation": validation
     }
@@ -1790,7 +1807,23 @@ def validate_node(state: GraphState) -> dict[str, Any]:
     question = _extract_last_user_question(state.get("messages", []))
     validation = validate_answer(final_answer, tool_trace, question)
 
+    faith = validation.get("faithfulness_score")
+    rel = validation.get("relevance_score")
+    conf = validation.get("confidence_score")
+    grounded = validation.get("grounded")
     warnings = validation.get("warnings") or []
+
+    print("\n================ AUDIT & VALIDATION ================")
+    print(f"🎯 Faithfulness Score: {faith}/100" if faith is not None else "🎯 Faithfulness Score: N/A")
+    print(f"📌 Relevance Score:    {rel}/100" if rel is not None else "📌 Relevance Score:    N/A")
+    print(f"🔒 Confidence Score:   {conf}/100" if conf is not None else "🔒 Confidence Score:   N/A")
+    print(f"🛡️ Grounded:           {grounded}")
+    if warnings:
+        print(f"⚠️ Warnings ({len(warnings)}):")
+        for w in warnings:
+            print(f"   - {w}")
+    print("====================================================\n")
+
     extra_errors = [f"validate: {w}" for w in warnings] if warnings else []
 
     return {

@@ -692,12 +692,15 @@ def run(question, chat_id=None, history=None) -> dict[str, Any]:
 
     total_req_time = time.time() - t_req_start
     cum_usage = token_tracker.get_cumulative()
+    val = result.get("validation", {})
     print(f"\n==========================================")
     print(f"[TOTAL REQUEST TIME]: {total_req_time:.2f}s")
     print(
         f"🪙 [TOTAL TOKENS]: {cum_usage['total_tokens']:,} "
         f"(Prompt: {cum_usage['prompt_tokens']:,} | Output: {cum_usage['completion_tokens']:,})"
     )
+    if val and not val.get("skipped") and val.get("faithfulness_score") is not None:
+        print(f"🎯 [AUDIT]: Faithfulness: {val.get('faithfulness_score')}/100 | Relevance: {val.get('relevance_score')}/100 | Confidence: {val.get('confidence_score')}/100 | Grounded: {val.get('grounded')}")
     print(f"==========================================\n")
 
     return result
@@ -789,12 +792,15 @@ def run_stream(question: str, chat_id: str | None = None, history: list[dict[str
 
     total_stream_time = time.time() - t_stream_start
     cum_usage = token_tracker.get_cumulative()
+    val = result.get("validation", {})
     print(f"\n==========================================")
     print(f"[TOTAL REQUEST TIME]: {total_stream_time:.2f}s")
     print(
         f"🪙 [TOTAL TOKENS]: {cum_usage['total_tokens']:,} "
         f"(Prompt: {cum_usage['prompt_tokens']:,} | Output: {cum_usage['completion_tokens']:,})"
     )
+    if val and not val.get("skipped") and val.get("faithfulness_score") is not None:
+        print(f"🎯 [AUDIT]: Faithfulness: {val.get('faithfulness_score')}/100 | Relevance: {val.get('relevance_score')}/100 | Confidence: {val.get('confidence_score')}/100 | Grounded: {val.get('grounded')}")
     print(f"==========================================\n")
 
     yield {"type": "final", "answer": result.get("final_answer"), "chart": chart, "errors": result.get("errors") or []}
@@ -834,7 +840,7 @@ def main() -> None:
         print(f"[هشدار] refresh_sql_validator_from_db شکست خورد -- validator با schema دستیِ fallback کار می‌کنه: {exc}")
 
     result = run(
-        "کدام محصولات بیشترین پتانسیل افزایش فروش را دارند ولی الان کمتر از ظرفیتشان فروش می‌روند؟",
+        "چه نوع نمودار هایی میتونی برام بفرستی؟",
         chat_id="test-top-selling-product_0"
     )
 
