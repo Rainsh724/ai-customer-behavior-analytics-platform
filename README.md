@@ -13,10 +13,18 @@
 
 <br/>
 
-A production-oriented, ReAct-based analytics platform that combines an LLM agent, validated Text-to-SQL, semantic search over Persian customer reviews (pgvector), a management knowledge base, and real-time dashboards to turn customer behavior data into evidence-backed insights.
+A production-oriented, ReAct-based analytics platform that combines an LLM agent, validated Text-to-SQL, semantic search over Persian customer reviews (pgvector), validated analytics, and real-time dashboards to turn customer behavior data into evidence-backed insights.
 
 [![GitHub Stars](https://img.shields.io/github/stars/Rainsh724/ai-customer-behavior-analytics-platform?style=social)](https://github.com/Rainsh724/ai-customer-behavior-analytics-platform)
 [![GitHub Forks](https://img.shields.io/github/forks/Rainsh724/ai-customer-behavior-analytics-platform?style=social)](https://github.com/Rainsh724/ai-customer-behavior-analytics-platform)
+
+<br/>
+
+<img src="rahin_front_ai/public/assets/logo-mark.png" width="120" alt="Rahin Logo">
+
+### 🧠 From Customer Behavior → Evidence → Decision
+
+<!-- Replace this file with your real product/demo GIF when available. -->
 
 [📚 Features](#-key-features) • [🏗️ Architecture](#-architecture) • [🚀 Quick Start](#-quick-start) • [🛡️ Reliability](#️-reliability--guardrails) • [💻 Tech Stack](#-tech-stack) • [📖 Documentation](#-documentation)
 
@@ -25,6 +33,19 @@ A production-oriented, ReAct-based analytics platform that combines an LLM agent
 ---
 
 ## ✨ Key Features
+## 🚀 What's New
+
+This README reflects the current architecture and recent platform evolution:
+
+- 🧩 **Three production tools**: `tool_sql`, `tool_rag`, and `tool_chart`
+- 🧠 **Multi-question orchestration** with independent sub-question execution and validation
+- 🔁 **Follow-up understanding** with Active Context preservation
+- 🛡️ **Answer audit + retry + correction** before returning low-confidence results
+- 🔐 **Defense-in-depth SQL controls**: AST validation, schema introspection, read-only execution, timeout, and row limits
+- 💾 **Persistent conversation memory** with structured compaction and evaluation logging
+- 📉 **Token/context optimization** through result compaction and non-LLM RAG summarization
+- 📊 **Dashboard and business-intelligence views** for trends, brands, categories, and customer segments
+- ⚡ **Caching and startup preloading** for frequently requested analytical data and local embeddings
 
 ### 🤖 **ReAct Conversational Agent**
 ```
@@ -36,18 +57,17 @@ A production-oriented, ReAct-based analytics platform that combines an LLM agent
 └─ Persistent multi-turn memory
 ```
 
-- 🧠 **Agent-driven routing**: the LLM decides which tool(s) to call; there is no hard-coded SQL/RAG/Hybrid pipeline
+- 🧠 **Agent-driven routing**: the LLM selects the appropriate analytics capability from the available tools
 - 🔄 **Smart follow-ups**: an *Active Context* (product, `product_id`, metric, period, previous result) is injected only for follow-up questions
-- 🎯 **Evidence first**: numbers come from SQL, customer voice from RAG, guidance from the knowledge base; the agent only combines them
+- 🎯 **Evidence first**: business metrics come from SQL, customer voice comes from RAG, and visualizations are generated from validated analytical results
 - 🕒 **Deterministic time semantics**: all relative periods ("last 30 days") are anchored to a configurable *dataset reference date* instead of `NOW()`
 
 ### 🧰 **Agent Toolkit**
 ```
 tools.py  (Tool Calling gateway)
-├─ tool_sql             → validated, read-only PostgreSQL analytics
-├─ tool_rag             → semantic search over customer reviews (pgvector)
-├─ tool_chart           → charts built on top of validated SQL results
-└─ tool_knowledge_base  → management playbooks (Markdown documents)
+├─ tool_sql   → validated, read-only PostgreSQL analytics
+├─ tool_rag   → semantic search over customer reviews (pgvector)
+└─ tool_chart → charts built on top of validated SQL results
 ```
 
 | Tool | Answers the question | Source of truth |
@@ -55,9 +75,8 @@ tools.py  (Tool Calling gateway)
 | **tool_sql** | *What happened?* | PostgreSQL analytics DB |
 | **tool_rag** | *What do customers say?* | `comments` + `comments_embedding` (pgvector) |
 | **tool_chart** | *Show me visually* | Result of a validated SQL query |
-| **tool_knowledge_base** | *Which management practice applies?* | Markdown knowledge documents |
 
-The agent may call several tools in one round; every raw result is compacted before it re-enters the LLM context, while the raw evidence is kept separately for audit.
+The agent can call one or several tools in a single reasoning cycle. Raw tool output is compacted before it re-enters the LLM context, while the underlying evidence remains available for audit.
 
 ### 🛡️ **Answer Audit & Self-Correction**
 - ✅ Every final answer is scored for **grounded / faithfulness / relevance / confidence** against the real tool trace
@@ -71,7 +90,6 @@ Data Analysis Toolkit
 ├─ SQL Analytics → rankings, aggregations, time-series (Production SQL Validator)
 ├─ RAG Search → semantic customer review analysis (multilingual-e5-base, 768-d)
 ├─ Chart Generation → interactive visualizations on validated data
-└─ Knowledge Base → management guidance to turn evidence into recommendations
 ```
 
 | Feature | Capability |
@@ -372,10 +390,21 @@ React 18 · Vite · JavaScript · CSS3 · Chart.js · Axios
 PostgreSQL       → Relational analytics + kpi schema
 pgvector         → Semantic search on Persian comments
 Window Functions → Time-series analysis
-Markdown KB      → Management playbooks (retrieval via tool_knowledge_base)
 ```
 
 ---
+
+## 🖼️ Product Showcase
+
+> Keep screenshots and GIFs in `docs/assets/` so the README remains easy to maintain.
+
+| View | What it shows |
+|---|---|
+| 🤖 **AI Assistant** | Conversational analytics, follow-ups, and multi-question reasoning |
+| 📊 **Dashboard** | Trends, rankings, KPIs, and customer segments |
+| 🏢 **Brand Intelligence** | Brand-level performance and customer feedback signals |
+| 🏷️ **Category Analysis** | Category comparison and conversion/satisfaction analytics |
+| 👥 **Customer Segments** | Behavioral clusters and exportable customer lists |
 
 ## 📚 Documentation
 
@@ -395,7 +424,6 @@ User: "Why?"  ← keeps the same products, metric and period
 ✅ Visualization Requests (only when a chart is explicitly requested)
 "Show me a chart of monthly sales trends"
 
-✅ Recommendations (SQL + RAG + Knowledge Base)
 "What should we do to improve customer retention?"
 ```
 
@@ -558,21 +586,22 @@ The validator loads the real schema and foreign keys from PostgreSQL at startup 
          (Cosmetics sales grew 15% last week)
 ```
 
-### 💡 Example 3: Strategic Question
+### 💡 Example 3: Multi-Question Analytics
 
-```
-🧑 User: "برای بازگرداندن مشتریان Window Shopper چه کار کنیم؟"
-         (How do we bring back Window Shopper customers?)
+```text
+🧑 User:
+"کدام برند بیشترین فروش را دارد و مشتریان درباره محصولاتش بیشتر از چه موضوعی صحبت می‌کنند؟"
 
-🤖 Agent: [Calls tool_knowledge_base for best practices]
-         [Combines with actual data from segment analysis]
-         
-         ✅ Recommendation:
-         "با توجه به رفتار این گروه و تجربیات موفق:
-          1. تخفیف 20% روی خرید اول
-          2. ایمیل مارکتینگ هفتگی
-          3. توصیه‌های شخصی‌شده
-          ..."
+🤖 Agent:
+[Splits the request into analytical sub-questions]
+[Runs SQL for sales ranking]
+[Runs RAG for customer-review evidence]
+[Validates each sub-answer]
+[Combines the results]
+
+✅ Final answer:
+A structured comparison of sales performance and customer feedback,
+with the underlying evidence kept in the tool trace.
 ```
 
 ---
@@ -658,7 +687,6 @@ ai-customer-behavior-analytics-platform/
 │       ├── vector_retriever.py    # 🔍 RAG: e5 embedding + pgvector Top-K
 │       ├── text_summary.py        # Non-LLM compression of retrieved comments
 │       ├── chart_agent.py         # 📈 Chart tool
-│       ├── knowledge_base_agent.py# 📚 Management knowledge tool
 │       ├── audit.py               # Answer validation & correction
 │       ├── dataset_time.py        # Dataset reference date & time contract
 │       ├── llm_client.py          # LLM calls, rate-limit retry, local embeddings
@@ -722,6 +750,24 @@ WHERE mean > 1000 ORDER BY mean DESC;
 ```
 
 ---
+
+## 🎨 Repository Branding
+
+The Rahin logo is already referenced from the frontend asset path:
+
+```html
+<div align="center">
+  <img src="rahin_front_ai/public/assets/logo-mark.png" width="120" alt="Rahin Logo">
+</div>
+```
+
+For GitHub, there are three different branding surfaces:
+
+1. **README logo** — the image above, stored in the repository.
+2. **Repository social preview** — set a Rahin-branded banner in **GitHub → Settings → Social preview**.
+3. **GitHub repository icon** — GitHub does not provide a normal per-repository custom icon setting. The closest equivalents are the README logo, social preview, and the profile/organization avatar.
+
+For the best result, use a clean Rahin logo on a transparent background for the README and a wider 1280×640-style branded banner for the social preview.
 
 ## 📝 Contributing
 
