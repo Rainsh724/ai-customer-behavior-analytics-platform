@@ -6,10 +6,10 @@
 
 **Transform Customer Data Into Actionable Intelligence**
 
-[![Python](https://img.shields.io/badge/Python-90.2%25-3776ab?logo=python&logoColor=white&style=for-the-badge)](https://python.org)
-[![JavaScript](https://img.shields.io/badge/JavaScript-2.3%25-f7df1e?logo=javascript&logoColor=black&style=for-the-badge)](https://javascript.com)
-[![CSS](https://img.shields.io/badge/CSS-5.6%25-1572b6?logo=css3&logoColor=white&style=for-the-badge)](https://www.w3.org/Style/CSS/)
-[![HTML](https://img.shields.io/badge/HTML-1.9%25-e34c26?logo=html5&logoColor=white&style=for-the-badge)](https://html.spec.whatwg.org/)
+[![Python](https://img.shields.io/badge/Python-89.1%25-3776ab?logo=python&logoColor=white&style=for-the-badge)](https://python.org)
+[![JavaScript](https://img.shields.io/badge/JavaScript-3.2%25-f7df1e?logo=javascript&logoColor=black&style=for-the-badge)](https://javascript.com)
+[![CSS](https://img.shields.io/badge/CSS-5.9%25-1572b6?logo=css3&logoColor=white&style=for-the-badge)](https://www.w3.org/Style/CSS/)
+[![HTML](https://img.shields.io/badge/HTML-1.8%25-e34c26?logo=html5&logoColor=white&style=for-the-badge)](https://html.spec.whatwg.org/)
 
 <br/>
 
