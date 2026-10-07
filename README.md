@@ -1,790 +1,1326 @@
-# 🎯 AI Customer Behavior Analytics Platform
-
 <div align="center">
 
-**Transform Customer Data Into Actionable Intelligence**
+<img src="rahin_front_ai/public/assets/logo-mark.png" width="110" alt="Rahin Logo">
 
-[![Python](https://img.shields.io/badge/Python-89.1%25-3776ab?logo=python&logoColor=white&style=for-the-badge)](https://python.org)
-[![JavaScript](https://img.shields.io/badge/JavaScript-3.2%25-f7df1e?logo=javascript&logoColor=black&style=for-the-badge)](https://javascript.com)
-[![CSS](https://img.shields.io/badge/CSS-5.9%25-1572b6?logo=css3&logoColor=white&style=for-the-badge)](https://www.w3.org/Style/CSS/)
-[![HTML](https://img.shields.io/badge/HTML-1.8%25-e34c26?logo=html5&logoColor=white&style=for-the-badge)](https://html.spec.whatwg.org/)
+# 🎯 Rahin — AI Customer Behavior Analytics Platform
+
+### Intelligent Customer & Business Analytics Assistant
+
+**From Raw Data → Evidence → Intelligence → Management Action**
 
 <br/>
 
-A production-oriented, ReAct-based analytics platform that combines an LLM agent, validated Text-to-SQL, semantic search over Persian customer reviews (pgvector), validated analytics, and real-time dashboards to turn customer behavior data into evidence-backed insights.
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white&style=for-the-badge)](https://www.python.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white&style=for-the-badge)](https://www.postgresql.org/)
+[![pgvector](https://img.shields.io/badge/pgvector-Vector_Search-336791?style=for-the-badge)](https://github.com/pgvector/pgvector)
+[![LangGraph](https://img.shields.io/badge/LangGraph-Agent_Orchestration-1C1C1C?style=for-the-badge)](https://www.langchain.com/langgraph)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white&style=for-the-badge)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB&style=for-the-badge)](https://react.dev/)
+
+<br/>
 
 [![GitHub Stars](https://img.shields.io/github/stars/Rainsh724/ai-customer-behavior-analytics-platform?style=social)](https://github.com/Rainsh724/ai-customer-behavior-analytics-platform)
 [![GitHub Forks](https://img.shields.io/github/forks/Rainsh724/ai-customer-behavior-analytics-platform?style=social)](https://github.com/Rainsh724/ai-customer-behavior-analytics-platform)
-
-<br/>
-
-<img src="rahin_front_ai/public/assets/logo-mark.png" width="120" alt="Rahin Logo">
-
-### 🧠 From Customer Behavior → Evidence → Decision
-
-<!-- Replace this file with your real product/demo GIF when available. -->
-
-[📚 Features](#-key-features) • [🏗️ Architecture](#-architecture) • [🚀 Quick Start](#-quick-start) • [🛡️ Reliability](#️-reliability--guardrails) • [💻 Tech Stack](#-tech-stack) • [📖 Documentation](#-documentation)
 
 </div>
 
 ---
 
-## ✨ Key Features
+## 🧠 What is Rahin?
 
-This README reflects the current architecture and recent platform evolution:
+**Rahin** is an AI-powered customer and business analytics platform designed to reduce the gap between **raw customer data** and **managerial decision-making**.
 
-- 🧩 **Three production tools**: `tool_sql`, `tool_rag`, and `tool_chart`
-- 🧠 **Multi-question orchestration** with independent sub-question execution and validation
-- 🔁 **Follow-up understanding** with Active Context preservation
-- 🛡️ **Answer audit + retry + correction** before returning low-confidence results
-- 🔐 **Defense-in-depth SQL controls**: AST validation, schema introspection, read-only execution, timeout, and row limits
-- 💾 **Persistent conversation memory** with structured compaction and evaluation logging
-- 📉 **Token/context optimization** through result compaction and non-LLM RAG summarization
-- 📊 **Dashboard and business-intelligence views** for trends, brands, categories, and customer segments
-- ⚡ **Caching and startup preloading** for frequently requested analytical data and local embeddings
+Instead of requiring a user to manually select dashboards, write SQL queries, inspect customer reviews, and combine multiple analytical results, Rahin turns a natural-language business question into a controlled analytical workflow:
 
-### 🤖 **ReAct Conversational Agent**
-```
-💬 Natural Language Understanding
-├─ Persian & English query support
-├─ Tool-calling agent (Reason → Act → Observe loop)
-├─ Context-aware follow-up detection ("Why?" keeps product / metric / period)
-├─ Multi-question support (each sub-answer validated separately)
-└─ Persistent multi-turn memory
-```
-
-- 🧠 **Agent-driven routing**: the LLM selects the appropriate analytics capability from the available tools
-- 🔄 **Smart follow-ups**: an *Active Context* (product, `product_id`, metric, period, previous result) is injected only for follow-up questions
-- 🎯 **Evidence first**: business metrics come from SQL, customer voice comes from RAG, and visualizations are generated from validated analytical results
-- 🕒 **Deterministic time semantics**: all relative periods ("last 30 days") are anchored to a configurable *dataset reference date* instead of `NOW()`
-
-### 🧰 **Agent Toolkit**
-```
-tools.py  (Tool Calling gateway)
-├─ tool_sql   → validated, read-only PostgreSQL analytics
-├─ tool_rag   → semantic search over customer reviews (pgvector)
-└─ tool_chart → charts built on top of validated SQL results
+```text
+Business Question
+       ↓
+   AI Agent
+       ↓
+ ┌───────────────┬────────────────────┐
+ │ Structured    │ Customer Voice     │
+ │ Analytics     │ Semantic Search    │
+ │   tool_sql    │     tool_rag       │
+ └───────┬───────┴──────────┬─────────┘
+         ↓                   ↓
+       Evidence + Context + Validation
+                    ↓
+              Insight / Answer
+                    ↓
+          Visualization when needed
 ```
 
-| Tool | Answers the question | Source of truth |
-|------|----------------------|-----------------|
-| **tool_sql** | *What happened?* | PostgreSQL analytics DB |
-| **tool_rag** | *What do customers say?* | `comments` + `comments_embedding` (pgvector) |
-| **tool_chart** | *Show me visually* | Result of a validated SQL query |
-
-The agent can call one or several tools in a single reasoning cycle. Raw tool output is compacted before it re-enters the LLM context, while the underlying evidence remains available for audit.
-
-### 🛡️ **Answer Audit & Self-Correction**
-- ✅ Every final answer is scored for **grounded / faithfulness / relevance / confidence** against the real tool trace
-- 🔁 Score below threshold (`CORRECTION_THRESHOLD = 70`) → *retry* (re-reason with tools) or *correction* (rewrite the text only)
-- 🔍 A corrected answer is **validated again** before being returned; correction is capped at one attempt
-- 📊 Every evaluation is logged for later calibration
-
-### 📊 **Multi-Modal Analytics**
-```
-Data Analysis Toolkit
-├─ SQL Analytics → rankings, aggregations, time-series (Production SQL Validator)
-├─ RAG Search → semantic customer review analysis (multilingual-e5-base, 768-d)
-├─ Chart Generation → interactive visualizations on validated data
-```
-
-| Feature | Capability |
-|---------|-----------|
-| **SQL Analytics** | Complex aggregations, rankings with deterministic tie-breakers, time-series |
-| **Semantic Search** | Persian review retrieval, Top-K = 20, compact keyword + representative-comment summary |
-| **Time-Series** | Rolling windows anchored to the dataset reference date (`2023-03-01`) |
-| **Comparisons** | Period-over-period and month-over-month trends |
-
-### 📈 **Executive Dashboards**
-```
-Real-Time Intelligence
-┌─────────────────────────────────────────┐
-│ 📊 Main Dashboard                       │
-│ ├─ 30-day trend analysis                │
-│ ├─ Top brands & products                │
-│ └─ Customer segment distribution        │
-│                                         │
-│ 🏢 Brand Intelligence                   │
-│ ├─ Performance metrics                  │
-│ ├─ Conversion rates                     │
-│ └─ Sentiment scores                     │
-│                                         │
-│ 🏷️ Category Analysis                    │
-│ ├─ Sales tier classification            │
-│ ├─ Customer satisfaction                │
-│ └─ Conversion benchmarks                │
-│                                         │
-│ 👥 Customer Segmentation                │
-│ ├─ VIP Champions (5%)                   │
-│ ├─ Returning Customers (25%)            │
-│ ├─ One-Time Buyers (35%)                │
-│ ├─ Low Engagement (20%)                 │
-│ └─ Window Shoppers (15%)                │
-└─────────────────────────────────────────┘
-```
-
-### 💾 **Persistent Conversation Memory**
-- 🗄️ **PostgreSQL backend**: `chat_memory` (JSONB) in a separate database/role from the read-only analytics DB
-- 🤖 **LLM-powered compaction**: only the last `CHAT_MEMORY_MAX_RAW_TURNS` turns stay raw; older turns become a structured summary that preserves `product_id`, metric and period
-- ⚛️ **Atomic saves**: messages are appended/merged, so concurrent requests cannot overwrite each other
-- 📊 **Evaluation logging**: confidence, faithfulness and relevance per turn (`eval_log`)
-- 🧯 **Failure isolation**: a failed summarization or evaluation log never breaks the user's answer
+The platform combines a substantial **data engineering pipeline**, a PostgreSQL-based analytical foundation, **feature engineering and KPI generation**, **ABSA for customer reviews**, vector retrieval with pgvector, behavioral customer segmentation, and a **LangGraph-based agentic layer**.
 
 ---
 
-## 🏗️ Architecture
+# 📌 From Data to Decision
 
-### System Overview
-```
-┌──────────────────────────────────────────────────────────┐
-│           🖥️  Frontend (React + Vite)                   │
-│          rahin_front_ai/                                 │
-│   • Dashboards   • Chat Interface   • Charts             │
-└────────────────────┬─────────────────────────────────────┘
-                     │ HTTP
-                     ▼
-┌──────────────────────────────────────────────────────────┐
-│        🚀 FastAPI Backend (api.py)                      │
-│   /api/chat  /api/dashboard  /api/brand-intelligence     │
-│   /api/category-intelligence  /api/customer-segments     │
-└────────────────────┬─────────────────────────────────────┘
-                     ▼
-┌──────────────────────────────────────────────────────────┐
-│   main.py  →  Startup + per-request lifecycle            │
-│   Load memory → Active Context → Graph → Save → Evaluate │
-└───────┬──────────────────────────────────┬───────────────┘
-        │                                  │
-        ▼                                  ▼
-┌──────────────────┐            ┌────────────────────────────┐
-│ 💾 memory_store  │            │ ⚙️  LangGraph (Graph/)     │
-│ chat_memory      │            │                            │
-│ eval_log         │            │  agent ⇄ tools (ReAct)     │
-│ (write role)     │            │     ↓                      │
-└──────────────────┘            │  finalize → validate       │
-                                │     ↓ (retry / correct)    │
-                                │    END                     │
-                                └─────────────┬──────────────┘
-                                              │ tools.py
-              ┌───────────────┬───────────────┼────────────────┐
-              ▼               ▼               ▼                ▼
-        ┌──────────┐   ┌────────────┐  ┌───────────┐   ┌────────────┐
-        │📊 SQL    │   │🔍 Vector   │  │📈 Chart   │   │📚 Knowledge│
-        │sql_agent │   │retriever   │  │chart_agent│   │Base agent  │
-        └────┬─────┘   └─────┬──────┘  └─────┬─────┘   └────────────┘
-             ▼               │               │
-   ┌──────────────────┐      │               │
-   │ Production SQL   │      │               │
-   │ Validator (AST)  │      │               │
-   └────────┬─────────┘      │               │
-            ▼                ▼               │
-      ┌─────────────────────────────┐        │
-      │ db.py (read-only pool)      │◄───────┘
-      │ PostgreSQL + pgvector       │
-      └─────────────────────────────┘
-```
+Rahin is built as a complete analytical pipeline rather than only an LLM chatbot:
 
-### Request Lifecycle
+```text
+Raw Datasets
+     ↓
+Metadata & Data Understanding
+     ↓
+Data Cleaning + Quality Validation
+     ↓
+Text Preprocessing
+     ↓
+Chunked Processing / Parquet
+     ↓
+ABSA + Sentiment + Aspect Extraction
+     ↓
+Embeddings + Vector Indexing
+     ↓
+PostgreSQL Data Foundation
+     ↓
+Feature Engineering
+     ↓
+KPI Generation
+     ↓
+RFM + Behavioral Clustering
+     ↓
+Analytics / RAG / Visualization
+     ↓
+LangGraph Agent
+     ↓
+Validation + Retry / Correction
+     ↓
+Evidence-Grounded Business Insight
 ```
-Question
-  ↓
-main.run(): load memory → build messages (system prompt once) → extract Active Context
-  ↓                                  → add question → compact history if needed
-LangGraph ReAct loop  (max 6 iterations, max 3 consecutive tool errors)
-  agent ──tool calls──► tools_node ──compact result──► agent ...
-  ↓ (no more tool calls)
-finalize → validate (audit)
-  ├─ OK ─────────────────────────────► answer
-  ├─ low score → retry (re-reason) ──► loop
-  └─ low score → correct (rewrite) ──► validate again ──► answer
-  ↓
-save_messages → log_evaluation (best-effort)
-```
-
-### Component Breakdown
-
-| Layer | Component | Technology |
-|-------|-----------|-----------|
-| **Presentation** | React Frontend | React 18, Vite, JavaScript |
-| **API** | FastAPI Server | FastAPI, Python 3.10+ |
-| **Agent** | LangGraph ReAct Engine | LangGraph, OpenAI-compatible chat/tool-calling API |
-| **LLM** | Configurable provider | `AGENT_LLM_MODEL` (default `openai/gpt-oss-120b`) |
-| **Embeddings** | Local model | `intfloat/multilingual-e5-base` (sentence-transformers, 768-d) |
-| **SQL Safety** | Production SQL Validator | sqlglot AST analysis, dynamic schema introspection |
-| **Memory** | Chat storage | PostgreSQL, JSONB, separate write-capable role |
-| **Data** | Analytics DB | PostgreSQL + pgvector (read-only pool) |
 
 ---
 
-## 🛡️ Reliability & Guardrails
+# ✨ Core Capabilities
 
-### SQL Safety (defense in depth)
+## 1. 🧹 Data Engineering & Data Quality
+
+The project started from large, heterogeneous raw datasets and built a controlled data foundation before the AI layer was introduced.
+
+### Dataset scale
+
+| Dataset / Output | Records |
+|---|---:|
+| Products | **948,352** |
+| Behavioral Logs | **3,750,416+** |
+| Comments / Reviews | **6,153,060** |
+| Comment Embeddings | **6,153,060** |
+| Extracted Aspects | **4,032,541** |
+| Sessions | **774,037** |
+| Total tracked records / outputs | **21,821,169** |
+
+### Structured Data Cleaning
+
+The cleaning pipeline included:
+
+- String standardization
+- Duplicate removal based on primary keys
+- Removal of records without required primary keys
+- Numeric and currency cleaning
+- Null-value handling / imputation
+- Boolean standardization
+- ID normalization to integer types
+- Date normalization
+- Persian/Jalali date conversion to Gregorian
+- Data-type consistency checks
+
+### Text Preprocessing
+
+Customer review text was normalized through a dedicated preprocessing pipeline:
+
+```text
+Multiple Text Columns
+        ↓
+Text Consolidation
+        ↓
+Persian / Arabic Character Normalization
+        ↓
+HTML Removal
+        ↓
+URL / Email Removal
+        ↓
+Punctuation Handling
+        ↓
+Character-Repetition Reduction
+        ↓
+Whitespace Normalization
+        ↓
+Clean Review Text
 ```
+
+### Data Quality Validation
+
+A dedicated quality-control process was used to detect issues such as:
+
+- Missing values
+- Infinite numeric values
+- Duplicate records
+- Invalid behavioral events
+- Inconsistent data types
+- Integrity problems before downstream modeling
+
+---
+
+## 2. ⚙️ Scalable Data Processing
+
+The dataset size made single-pass processing inefficient.
+
+The pipeline therefore introduced **chunk-based processing**:
+
+```text
+Large Dataset
+     ↓
+50,000-row Chunks
+     ↓
+Clean
+     ↓
+Normalize
+     ↓
+Write Parquet
+     ↓
+Parallel / Multiprocessing Processing
+```
+
+Parquet was used as an intermediate representation because it provides:
+
+- Columnar storage
+- Better suitability for large analytical datasets
+- Stronger schema/type preservation than CSV
+- Efficient processing with DuckDB
+- Reduced dependency on a single massive file
+
+**DuckDB** was also used as part of the high-volume ETL architecture, including attachment to PostgreSQL for large-scale analytical processing.
+
+---
+
+# 🗄️ Data Foundation & Database Architecture
+
+The database was **not copied directly from the raw dataset structure**.
+
+Instead, the data model was redesigned around real entities, relationships, keys, and analytical requirements.
+
+This resulted in a relational PostgreSQL foundation with core entities such as:
+
+```text
+users
+cities
+brands
+categories
+sellers
+sessions
+products
+user_behavior_logs
+comments
+comment_aspects
+comments_embedding
+```
+
+The architecture separates:
+
+- **Core data**
+- **Feature layers**
+- **KPI / analytical views**
+- **Vectorized customer-review data**
+
+The database therefore became the central analytical foundation instead of maintaining disconnected feature and KPI files.
+
+### Why this matters
+
+The final architecture evolved from:
+
+```text
+Raw Files
+   ↓
+Feature Files
+   ↓
+KPI Files
+   ↓
+Database
+```
+
+to:
+
+```text
+Core Database Tables
+        ↓
+SQL Feature Engineering
+        ↓
+KPI Views / Analytics Layer
+        ↓
+AI + BI + Agentic Analytics
+```
+
+This reduced unnecessary duplication and made analytical features and KPIs directly reproducible from the underlying database.
+
+---
+
+# 🧩 Feature Engineering
+
+Feature engineering was implemented at multiple analytical levels.
+
+### Feature families
+
+```text
+Behavior Features
+User Features
+Product Features
+City Features
+Category Features
+Brand Features
+User × Product
+User × Category
+Sentiment Features
+Aspect Features
+Product Sentiment
+Product × Aspect
+Brand Sentiment
+Category Sentiment
+Global Aspect
+Time Features
+```
+
+### Examples of behavioral features
+
+- Views
+- Carts
+- Purchases
+- Removes
+- Conversion rates
+- Engagement
+- Session dynamics
+- Weekend activity
+- Night activity
+- View-to-purchase behavior
+- Cart / remove relationships
+
+### User-level behavioral profile
+
+The customer clustering layer uses behavioral variables including:
+
+```text
+recency_days
+total_spend
+purchase_frequency
+category_diversity
+avg_session_duration
+night_activity_ratio
+weekend_activity_ratio
+view_to_purchase_ratio
+```
+
+These features form the bridge between raw events and higher-level customer intelligence.
+
+---
+
+# 📊 KPI & Analytics Layer
+
+The project does not stop at raw features.
+
+A dedicated **KPI Layer** transforms behavioral and transactional data into business-level indicators.
+
+## Global Executive Funnel
+
+Tracks the customer journey through:
+
+```text
+Views
+  ↓
+Add to Cart
+  ↓
+Purchase
+  ↓
+Conversion
+  ↓
+Remove / Drop-off
+```
+
+## Product 360
+
+Combines multiple evidence types around products:
+
+- Behavioral performance
+- Purchases
+- Revenue
+- Ratings
+- Customer sentiment
+- Aspect-level signals
+- Managerial classification tags
+
+## User Segmentation
+
+The KPI layer identifies behavioral groups such as:
+
+- VIP Customer
+- Returning Customer
+- One-Time Buyer
+- Window Shopper
+- Low Engagement
+
+## Brand Diagnostics
+
+Brand-level analytics combine behavioral and customer-voice signals:
+
+- Views
+- Purchases
+- Comments
+- Average rating
+- Brand sentiment score
+
+## Aspect Diagnostics
+
+Aspect-level analytics support root-cause analysis using:
+
+- Total mentions
+- Positive mentions
+- Negative mentions
+- Negative impact percentage
+
+Aspects can also receive managerial classifications such as:
+
+- **Critical Weakness**
+- **Key Strength**
+- **Neutral**
+
+## RFM Segmentation
+
+The system calculates:
+
+```text
+R = Recency
+F = Frequency
+M = Monetary
+```
+
+R, F, and M scores are created using **NTILE-based scoring from 1 to 5**, followed by RFM classification.
+
+Customer groups include:
+
+- `vip`
+- `promising`
+- `at_risk`
+- `lost`
+- `regular`
+
+## ML User Clusters
+
+Behavioral clustering adds a second, model-driven segmentation layer.
+
+The project identifies **five behavioral clusters**, including patterns corresponding to:
+
+- High-value / VIP customers
+- Returning customers
+- One-time buyers
+- Window shoppers
+- Low-engagement customers
+
+The purpose is to transform scattered behavioral events into interpretable customer segments that can be used by analytics and decision-support components.
+
+---
+
+# 💬 ABSA — Aspect-Based Sentiment Analysis
+
+One of the major analytical components of Rahin is **Aspect-Based Sentiment Analysis (ABSA)**.
+
+Traditional sentiment analysis answers:
+
+> Is this review positive or negative?
+
+ABSA answers a more useful business question:
+
+> **What does the customer feel about which aspect of the product?**
+
+For example:
+
+```text
+Review
+  ↓
+Aspect Detection
+  ↓
+Aspect-level Sentiment
+  ↓
+Product / Brand / Category Diagnostics
+```
+
+## Two-Stage ABSA Pipeline
+
+### Stage 1 — Aspect Extraction
+
+The aspect extraction model uses:
+
+```text
+ParsBERT
+   ↓
+BiLSTM
+   ↓
+CRF
+   ↓
+BIO Sequence Labels
+```
+
+**Base encoder:** `HooshvareLab/bert-base-parsbert-uncased`
+
+The BiLSTM captures contextual sequence dependencies, while CRF provides structured decoding for BIO labels such as:
+
+```text
+B-ASP
+I-ASP
+O
+```
+
+This is particularly important because aspect extraction is a **sequence-labeling problem**, where neighboring token labels are not independent.
+
+### Training considerations
+
+The aspect pipeline addresses:
+
+- Class imbalance
+- Multi-aspect reviews
+- Review-level aggregation
+- Weighted loss
+- Focal-loss-based training stabilization
+
+The documented training configuration includes **Weighted Focal Loss with γ = 1.5**.
+
+### Stage 2 — Aspect-level Sentiment Classification
+
+After aspects are extracted, the sentiment stage determines the polarity associated with each aspect.
+
+Production inference produces structured output similar to:
+
+```json
+{
+  "term": "battery",
+  "sentiment": "negative",
+  "negative_pct": 0.82,
+  "neutral_pct": 0.10,
+  "positive_pct": 0.08
+}
+```
+
+This structured output can then feed product, brand, category, and aspect diagnostics.
+
+---
+
+# 🔎 Semantic Search & Customer Voice
+
+Customer reviews are transformed into vector representations to enable semantic retrieval.
+
+### Embedding pipeline
+
+```text
+Customer Review
+      ↓
+Text Preprocessing
+      ↓
+Embedding Model
+      ↓
+Normalized Vector
+      ↓
+pgvector
+      ↓
+HNSW Index
+      ↓
+Top-K Semantic Retrieval
+```
+
+The project uses multilingual embeddings with a **768-dimensional vector representation** and a consistent document/query prefix strategy:
+
+```text
+Documents → passage: <comment>
+Queries   → query: <user query>
+```
+
+### Retrieval
+
+The RAG layer uses vector similarity search with:
+
+```text
+TOP_K = 20
+```
+
+Retrieved results include information such as:
+
+- `comment_id`
+- Similarity / distance
+- Relevant review text
+- Representative customer comments
+
+The retrieval output is also compressed before being passed to the LLM to control context size without requiring another LLM call.
+
+---
+
+# 🤖 Agentic Intelligence
+
+After building the data and analytics foundation, Rahin adds a **LangGraph-based agentic layer**.
+
+The agent is not responsible for inventing business numbers.
+
+Instead:
+
+```text
+Agent
+  ↓
+Select analytical capability
+  ↓
+Retrieve real evidence
+  ↓
+Validate execution
+  ↓
+Synthesize grounded answer
+```
+
+## Current Agent Tools
+
+### `tool_sql`
+**Structured business analytics**
+
+Uses validated SQL against PostgreSQL for:
+
+- Aggregations
+- Rankings
+- Time-series analysis
+- Comparisons
+- Business KPIs
+- Customer / product / brand analytics
+
+### `tool_rag`
+**Semantic search on customer reviews**
+
+Uses pgvector-based retrieval to answer questions about:
+
+- Customer opinions
+- Product aspects
+- Sentiment
+- Review evidence
+- Qualitative customer signals
+
+### `tool_chart`
+**SQL-driven visualization**
+
+Generates chart configurations from validated analytical results when visualization is explicitly requested.
+
+---
+
+# 🔄 LangGraph Orchestration
+
+The agentic layer uses a controlled graph rather than an unrestricted LLM loop.
+
+```text
+                    ┌──────────────┐
+                    │    User      │
+                    └──────┬───────┘
+                           ↓
+                  Detect Question Type
+                           ↓
+              ┌────────────┴────────────┐
+              ↓                         ↓
+        Single Question            Multi Question
+              ↓                         ↓
+            Agent                  Sub-question Loop
+              ↓                         ↓
+           Tools                  Sub-agent / Tools
+              ↓                         ↓
+           Finalize              Combine Sub-answers
+              ↓                         ↓
+           Validate ←───────────────┬───┘
+              ↓                     │
+       ┌──────┴───────┐             │
+       ↓              ↓             │
+      Accept         Retry / Correct
+                       ↓
+                    Validate
+```
+
+### Multi-question orchestration
+
+Complex questions can be decomposed into sub-questions.
+
+Each sub-question has its own execution and validation state before the final answers are combined.
+
+### Follow-up understanding
+
+The system also detects follow-up questions and extracts an **Active Context** containing relevant information such as:
+
+- Product / product ID
+- Metric
+- Time period
+- Previous analytical result
+
+This allows a question such as:
+
+```text
+User: Which products sold best?
+
+User: Why?
+```
+
+to retain the analytical context instead of treating `"Why?"` as an unrelated question.
+
+---
+
+# 🛡️ Answer Validation & Self-Correction
+
+A major reliability layer evaluates the generated answer against the actual execution trace.
+
+The system can assess:
+
+- Groundedness
+- Faithfulness
+- Relevance
+- Confidence
+
+When an answer falls below the configured correction threshold:
+
+```text
+Low Score
+   ↓
+Retry / Re-reason with tools
+   ↓
+Validate
+   ↓
+If necessary
+   ↓
+Correct the answer text
+   ↓
+Validate Again
+```
+
+The graph also enforces bounded recovery using:
+
+```text
+MAX_ITERATIONS
+MAX_CONSECUTIVE_TOOL_ERRORS
+MAX_CORRECTION_RETRIES
+CORRECTION_THRESHOLD
+```
+
+This prevents uncontrolled agent loops and limits unnecessary LLM/token usage.
+
+---
+
+# 🔐 SQL Safety & Production Guardrails
+
+LLM-generated SQL is treated as **untrusted input**.
+
+The project therefore uses defense-in-depth controls.
+
+```text
 LLM-generated SQL
-  ↓
-1. ProductionSQLValidator (sqlglot AST)
-   ├─ single SELECT / WITH…SELECT only, no multi-statement
-   ├─ allowed tables + real schema (introspected from PostgreSQL)
-   ├─ allowed join pairs & keys, no comma joins
-   ├─ fan-out protection (parent/child joins, multi-child joins)
-   ├─ no direct SUM/AVG on ratio columns (weighted average hint)
-   ├─ division-by-zero safety (NULLIF)
-   └─ deterministic Top-N (stable tie-breaker such as product_id)
-  ↓
-2. Read-only connection (default_transaction_read_only)
-3. statement_timeout  (STATEMENT_TIMEOUT_MS, default 60000 ms)
-4. HARD_MAX_ROWS = 200  → result marked truncated + total row count reported
+       ↓
+ProductionSQLValidator
+       ↓
+SQL AST Analysis
+       ↓
+Schema / Join Validation
+       ↓
+Read-only PostgreSQL
+       ↓
+Statement Timeout
+       ↓
+Hard Row Limit
+       ↓
+Result
 ```
-Validator errors explain both the problem and the fix, so the agent can self-correct in the next ReAct round.
 
-### Agent Loop Protection
-| Guard | Value | Purpose |
-|-------|-------|---------|
-| `MAX_ITERATIONS` | 6 | Stops unbounded reasoning / token burn |
-| `MAX_CONSECUTIVE_TOOL_ERRORS` | 3 | Circuit breaker when every tool call keeps failing |
-| `MAX_CORRECTION_RETRIES` | 1 | One rewrite, then re-validation |
-| `CORRECTION_THRESHOLD` | 70 | Minimum audit score to accept an answer |
+## AST-based validation
 
-### Context & Cost Control
-- 📉 Raw tool results are **compacted** before entering the LLM context (raw evidence is stored separately)
-- 🧾 The DB schema lives only in `tool_sql`'s definition (not repeated per tool)
-- 💬 RAG output is compressed without an LLM (keywords + representative comments with `comment_id`)
-- 🗜️ Old conversation turns are summarized, never blindly resent
-- ⏱️ 429 rate limits: exponential backoff (2s, 4s, 8s, 16s) via `LLM_RATE_LIMIT_MAX_RETRIES` / `LLM_RATE_LIMIT_BASE_DELAY`
+`sqlglot` is used to parse SQL structurally rather than relying on simple regular expressions.
 
-### Time Semantics
-The dataset is a historical snapshot, so the reference date is configuration, not `NOW()`:
-`DATASET_REFERENCE_DATE` (default **2023-03-01**). Ranges use the half-open convention `[start, end)`; the reference day is included by using `< reference + INTERVAL '1 day'`.
+The validator can inspect:
 
-### Correlation vs. Causation
-The system prompt requires evidence-based explanations: SQL numbers and retrieved customer comments are reported as *observed signals*, and the answer must not invent causes that the evidence does not support. The audit layer flags answers that are not grounded in the tool trace.
+- SELECT / WITH structure
+- JOINs
+- ORDER BY
+- Aggregations
+- CTEs
+- Division
+- LIMIT
+- Multiple statements
+- Allowed tables
+- Join relationships
+- Ratio-sensitive columns
+
+### Database-level controls
+
+The analytical database connection is protected by:
+
+- Read-only execution
+- Statement timeout
+- Hard result-row limit
+- Real schema introspection
+- Controlled join rules
+
+The validator also considers parent/child relationships to reduce accidental **fan-out joins** and inflated aggregations.
 
 ---
 
-## 🚀 Quick Start
+# ⏱️ Deterministic Time Semantics
 
-### 📋 Prerequisites
+The dataset is a historical snapshot rather than a continuously updated live database.
 
-```bash
-✅ Python 3.10 or higher
-✅ Node.js 18 or higher
-✅ PostgreSQL 13 or higher with the pgvector extension
-✅ An API key for an OpenAI-compatible LLM provider (tool calling required)
+Therefore, relative periods are anchored to a configurable:
+
+```text
+DATASET_REFERENCE_DATE
 ```
 
-### 1️⃣ Clone & Setup Environment
+instead of relying blindly on:
+
+```sql
+NOW()
+```
+
+The documented reference date is:
+
+```text
+2023-03-01
+```
+
+Time ranges follow a half-open convention:
+
+```text
+[start, end)
+```
+
+This prevents queries such as "last 30 days" from changing meaning merely because the system clock changes.
+
+---
+
+# 💾 Persistent Conversation Memory
+
+Rahin maintains conversation context through PostgreSQL-backed storage.
+
+The memory layer supports:
+
+- Multi-turn conversations
+- Structured history
+- Active-context preservation
+- Conversation compaction
+- Evaluation logging
+- Failure isolation
+
+Older conversation turns can be summarized rather than repeatedly sending the entire history to the LLM.
+
+This reduces:
+
+- Prompt size
+- Token consumption
+- Context degradation
+- Repeated information
+
+---
+
+# 📈 Executive Analytics & Dashboards
+
+The platform exposes the analytical foundation through an interactive React dashboard.
+
+### Main Dashboard
+
+- Daily / recent trends
+- Top products
+- Top brands
+- Customer segments
+- Funnel analytics
+
+### Brand Intelligence
+
+- Brand performance
+- Sales trends
+- Conversion indicators
+- Customer sentiment
+- Revenue-related metrics
+
+### Category Analysis
+
+- Category performance
+- Sales tiers
+- Conversion performance
+- Customer satisfaction
+- Comparative analysis
+
+### Customer Segmentation
+
+Behavioral segments can be inspected and customer lists can be exported for targeted analysis and campaigns.
+
+---
+
+# 🏗️ End-to-End Architecture
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│                    Rahin Frontend                       │
+│             React + Vite + Dashboards                  │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                    FastAPI Backend                      │
+│            API + Dashboard + Chat + Export              │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                 LangGraph Agent Layer                   │
+│                                                         │
+│     Agent → Tools → Evidence → Validate → Answer       │
+└───────────────┬───────────────────────┬─────────────────┘
+                │                       │
+        ┌───────▼────────┐      ┌──────▼─────────┐
+        │   tool_sql     │      │    tool_rag    │
+        │ Structured     │      │ Customer Voice │
+        │ Analytics      │      │ Semantic Search│
+        └───────┬────────┘      └──────┬─────────┘
+                │                       │
+                └──────────┬────────────┘
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│              PostgreSQL + pgvector                      │
+│                                                         │
+│ Core Tables → Feature Layer → KPI Layer → Vectors      │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                 Data Engineering                        │
+│ Cleaning → Text Processing → ETL → ABSA → Features     │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+# 📊 Evaluation
+
+The project includes quantitative evaluation across the data, NLP, retrieval, agent, and system layers.
+
+## ABSA
+
+| Metric | Result |
+|---|---:|
+| Sentiment Accuracy | **86%** |
+| Sentiment Macro-F1 | **0.84** |
+| Aspect Recall | **0.45** |
+| Aspect F1 | **0.34** |
+| Aspect Precision | **0.27** |
+
+## RAG / Retrieval
+
+| Metric | Result |
+|---|---:|
+| Retrieval Quality | **81.2%** |
+| Precision@5 | **82.0%** |
+| Recall@5 | **74.5%** |
+| F1@5 | **78.0%** |
+
+`@5` denotes evaluation over the **top five retrieved results**.
+
+## Agent & Application
+
+| Metric | Result |
+|---|---:|
+| Text-to-SQL Accuracy | **86.5%** |
+| Tool Routing Accuracy | **88.0%** |
+| Task Completion | **83.0%** |
+| HTTP Request Success Rate | **94.5%** |
+| Faithfulness | **74.7%** |
+| Faithfulness Pass Rate (>70) | **79.8%** |
+| Relevance | **80.4%** |
+| Insight Quality | **82.0%** |
+| Manager Satisfaction | **81.5%** |
+| Report Coverage | **8 domains** |
+
+## Performance
+
+| Metric | Result |
+|---|---:|
+| Average API Response Time | **6.8 s** |
+| API Response Range | **1.2–9.5 s** |
+| Agent Decision Time | **1.25 s** |
+| Complex PostgreSQL Query | **360 ms** |
+| Complex Query Range | **234–480 ms** |
+| Customer Clusters | **5** |
+
+---
+
+# 🧰 Technology Stack
+
+## Data Engineering
+
+- Python
+- Pandas
+- PyArrow
+- DuckDB
+- Parquet
+- Multiprocessing / chunked processing
+
+## NLP & ABSA
+
+- PyTorch
+- Transformers
+- ParsBERT
+- BiLSTM
+- CRF
+- Weighted Focal Loss
+- Sentence-level / aspect-level sentiment analysis
+
+## Data & Database
+
+- PostgreSQL
+- SQL
+- pgvector
+- HNSW
+- PostgreSQL views
+- SQL-based Feature Engineering
+- KPI schemas / views
+
+## AI & Agentic Layer
+
+- LLM
+- LangChain
+- LangGraph
+- ReAct-style tool orchestration
+- Tool calling
+- Text-to-SQL
+- RAG / semantic retrieval
+
+## Backend
+
+- FastAPI
+- Uvicorn
+- PostgreSQL connection management
+- API endpoints
+- Caching
+- Evaluation logging
+
+## Frontend
+
+- React
+- Vite
+- JavaScript
+- Interactive dashboards
+- Data visualization
+- Chat interface
+
+---
+
+# 📂 Project Structure
+
+```text
+ai-customer-behavior-analytics-platform/
+│
+├── Graph/
+│   ├── main.py
+│   ├── graph.py
+│   ├── state.py
+│   ├── nodes.py
+│   ├── tools.py
+│   ├── db.py
+│   ├── sql_agent.py
+│   ├── production_validator.py
+│   ├── schema_introspector.py
+│   ├── vector_retriever.py
+│   ├── chart_agent.py
+│   ├── dataset_time.py
+│   ├── memory_store.py
+│   └── ...
+│
+├── rahin_front_ai/
+│   ├── public/
+│   │   └── assets/
+│   │       └── logo-mark.png
+│   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   └── ...
+│   └── vite.config.js
+│
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+The repository is organized around the same conceptual layers described above: data foundation, analytical/AI components, agent orchestration, API services, and frontend presentation.
+
+---
+
+# 🚀 Quick Start
+
+## Prerequisites
+
+- Python 3.10+
+- Node.js 18+
+- PostgreSQL
+- pgvector extension
+- An OpenAI-compatible LLM provider with tool-calling support
+
+## Clone
 
 ```bash
 git clone https://github.com/Rainsh724/ai-customer-behavior-analytics-platform.git
 cd ai-customer-behavior-analytics-platform
-cp .env.example .env
 ```
 
-### 2️⃣ Configure `.env` File
-
-```env
-# 🗄️ Analytics Database (Read-Only role)
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=analytics_db
-DB_USER=analytics_reader
-DB_PASSWORD=your_secure_password
-STATEMENT_TIMEOUT_MS=60000
-
-# 💬 Chat Memory Database (Write-capable role)
-CHAT_DB_HOST=localhost
-CHAT_DB_PORT=5432
-CHAT_DB_NAME=postgres
-CHAT_DB_USER=app_chat_writer
-CHAT_DB_PASSWORD=your_secure_password
-CHAT_DB_CONNECT_TIMEOUT=10
-
-# 🤖 LLM (OpenAI-compatible provider: API key / base URL variable names as in .env.example)
-AGENT_LLM_MODEL=openai/gpt-oss-120b
-LLM_RATE_LIMIT_MAX_RETRIES=4
-LLM_RATE_LIMIT_BASE_DELAY=2
-
-# 🔎 Local embedding model (intfloat/multilingual-e5-base, 768-d)
-# After the first successful download you can run fully offline:
-# HF_HUB_OFFLINE=1
-# HF_TOKEN=your_hf_token   # optional, avoids Hub rate limits on first download
-
-# 🕒 Dataset time
-DATASET_REFERENCE_DATE=2023-03-01
-
-# ⚙️ Cache & Memory
-DASHBOARD_CACHE_TTL_SECONDS=300
-CHAT_MEMORY_MAX_RAW_TURNS=3
-```
-
-### 3️⃣ Prepare the Databases
-
-- The analytics database must already contain the data tables and the `comments_embedding` table (768-d vectors created with the same e5 model used at query time).
-- At runtime the application **does not create tables**; it only verifies that `public.chat_memory` exists. Create it once with an admin role (SQL in [Database Schema](#️-database-schema)).
-
-### 4️⃣ Install Backend Dependencies
+## Backend
 
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+Windows:
+
+```powershell
+venv\Scripts\activate
+```
+
+Linux / macOS:
+
+```bash
+source venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
 ```
 
-### 5️⃣ Start Backend Server
+Configure environment variables using:
 
-```bash
-uvicorn api:app --reload --port 8000
-# Startup preloads the embedding model, checks chat_memory, ensures the eval schema
-# and refreshes the SQL validator from the real database schema.
-# Server runs at: http://localhost:8000
+```text
+.env.example
 ```
 
-### 6️⃣ Install & Start Frontend
+## Frontend
 
 ```bash
 cd rahin_front_ai
 npm install
 npm run dev
-# Frontend runs at: http://localhost:5173
-```
-
-### 7️⃣ Verify Everything Works
-
-```bash
-curl http://localhost:8000/api/health
-
-curl -X POST http://localhost:8000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "کدام محصولات بیشترین فروش را دارند؟", "session_id": "test-session-001"}'
-
-curl http://localhost:8000/api/dashboard
 ```
 
 ---
 
-## 💻 Tech Stack
+# 🔌 Analytical Interaction Examples
 
-### 🐍 Backend
-```
-FastAPI          → API layer
-LangGraph        → ReAct agent orchestration & state management
-OpenAI-compatible client → chat completions + tool calling (provider is swappable via config)
-sentence-transformers    → local multilingual-e5-base embeddings (768-d)
-sqlglot          → AST-based SQL validation
-PostgreSQL       → analytics data, chat memory, evaluation log
-pgvector         → cosine similarity search over review embeddings
-Psycopg2         → PostgreSQL adapter (pooled connections)
-Pandas           → Data manipulation & export
-```
-
-### 🎨 Frontend
-```
-React 18 · Vite · JavaScript · CSS3 · Chart.js · Axios
-```
-
-### 📊 Data & Analytics
-```
-PostgreSQL       → Relational analytics + kpi schema
-pgvector         → Semantic search on Persian comments
-Window Functions → Time-series analysis
-```
-
----
-
-## 🖼️ Product Showcase
-
-> Keep screenshots and GIFs in `docs/assets/` so the README remains easy to maintain.
-
-| View | What it shows |
-|---|---|
-| 🤖 **AI Assistant** | Conversational analytics, follow-ups, and multi-question reasoning |
-| 📊 **Dashboard** | Trends, rankings, KPIs, and customer segments |
-| 🏢 **Brand Intelligence** | Brand-level performance and customer feedback signals |
-| 🏷️ **Category Analysis** | Category comparison and conversion/satisfaction analytics |
-| 👥 **Customer Segments** | Behavioral clusters and exportable customer lists |
-
-## 📚 Documentation
-
-### 💬 How to Ask Questions
-
-```
-✅ Metrics Queries
-"Show me top 10 products in the last 30 days"
-
-✅ Explanatory Questions (evidence-based, not causal claims)
-"Why did sales drop for brand X?"  → SQL trend + customer comments
-
-✅ Smart Follow-ups
-User: "What products sold best?"
-User: "Why?"  ← keeps the same products, metric and period
-
-✅ Visualization Requests (only when a chart is explicitly requested)
-"Show me a chart of monthly sales trends"
-
-"What should we do to improve customer retention?"
-```
-
-### 🔄 Follow-Up Context Preservation
-The Active Context extracted from the last *successful* turn contains: product name / `product_id`, metric, time period and the previous result (ranking positions, values, trend). It is injected only when the new question is detected as a follow-up, which keeps prompts small.
-
-### 📊 Dashboard Pages
-
-#### 1. **Main Dashboard** 📊
-- 30-day trend visualization
-- Top 10 brands by sales
-- Top 10 products by purchases
-- Customer segment breakdown
-
-#### 2. **Brand Intelligence** 🏢
-- Brand performance metrics
-- 30-day sales trends
-- Conversion rates
-- Customer sentiment scores
-- Revenue tracking
-
-#### 3. **Category Analysis** 🏷️
-- 6 main categories analyzed
-- Sales tier classification (weak/medium/strong)
-- Conversion performance
-- Customer satisfaction
-- Comparative benchmarks
-
-#### 4. **Customer Segments** 👥
-```
-VIP Champions           → 5%   (High value, loyal)
-Returning Customers     → 25%  (Regular buyers)
-One-Time Buyers        → 35%  (Occasional purchases)
-Low Engagement         → 20%  (Minimal activity)
-Window Shoppers        → 15%  (Browse only)
-
-⬇️ Export customer lists to Excel for targeted campaigns
-```
-
-### 🔌 API Endpoints
-
-#### Chat Operations
-```http
-POST /api/chat
-Content-Type: application/json
-
-{
-  "message": "سوال کاربر / User question",
-  "session_id": "unique-session-id"
-}
-
-Response (200 OK):
-{
-  "answer": "پاسخ دستیار / Assistant response",
-  "chart": { /* optional chart configuration */ }
-}
-```
-
-```http
-DELETE /api/chat/{session_id}
-
-Response (200 OK):
-{
-  "deleted": true
-}
-```
-
-#### Data Endpoints
-```http
-GET /api/dashboard
-→ Returns: trend data, top brands, top products, segments
-
-GET /api/brand-intelligence
-→ Returns: brand metrics, sentiment, conversion rates
-
-GET /api/category-intelligence
-→ Returns: category performance, tier classifications
-
-GET /api/customer-segments
-→ Returns: segment distribution & counts
-
-GET /api/customer-segments/{cluster_name}/export
-→ Returns: Excel file with customer IDs for segment
-
-GET /api/health
-→ Returns: {"status": "ok"}
-```
-
-### 🗄️ Database Schema
-
-#### Chat Memory Tables
-```sql
--- Conversation history storage (create once with an admin role)
-CREATE TABLE public.chat_memory (
-  chat_id TEXT PRIMARY KEY,
-  messages JSONB NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Evaluation metrics & calibration
-CREATE TABLE public.eval_log (
-  id BIGSERIAL PRIMARY KEY,
-  chat_id TEXT,
-  question TEXT,
-  faithfulness_score INTEGER,    -- 0-100
-  relevance_score INTEGER,       -- 0-100
-  confidence_score INTEGER,      -- 0-100
-  grounded BOOLEAN,              -- Backed by data?
-  turn_index INTEGER,            -- Which turn?
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-```
-
-#### Analytics Database (Read-Only)
-```sql
--- Core tables queried through tool_sql / tool_rag
-products, brands, categories, sellers, cities   → catalog & dimensions
-users, sessions, user_behavior_logs              → customer actions (views, purchases, cart)
-comments, comment_aspects                        → customer reviews & extracted aspects
-comments_embedding                               → 768-d e5 vectors for pgvector search
-analytics / kpi schemas (e.g. kpi.ml_user_clusters) → aggregates & ML behavioral segments
-```
-The validator loads the real schema and foreign keys from PostgreSQL at startup (`schema_introspector.py`), with architecture-specific join rules kept alongside them.
-
----
-
-## 🎯 Example Conversations
-
-### 📊 Example 1: Simple Query + Follow-up
-
-```
-🧑 User: "کدام برند بیشترین درآمد داشت؟"
-          (Which brand had the highest revenue?)
-
-🤖 Agent: "برند X در 30 روز اخیر بیشترین درآمد را 
-          با ۲,۵۰۰,۰۰۰ تومان داشت"
-          (Brand X had the highest revenue with 2.5M in last 30 days)
-
-🧑 User: "چرا؟"
-         (Why?)
-
-🤖 Agent: [Automatically knows you mean "Why did Brand X earn the most?"]
-         [Runs RAG on Brand X reviews to find satisfaction signals]
-         "برند X به دلیل کیفیت بالا و سرویس خوب مشتری..."
-         (Brand X succeeded due to high quality and good customer service...)
-```
-
-### 🎨 Example 2: Visualization Request
-
-```
-🧑 User: "نمودار فروش محصولات دسته بندی آرایشی را نشون بده"
-         (Show me a chart of cosmetic product sales)
-
-🤖 Agent: [Runs SQL to get cosmetics category data]
-         [Generates chart configuration]
-         [Frontend renders interactive chart]
-         
-         📈 Provides trend analysis:
-         "فروش دسته آرایشی در هفته اخیر ۱۵% رشد داشت"
-         (Cosmetics sales grew 15% last week)
-```
-
-### 💡 Example 3: Multi-Question Analytics
+### Structured Analytics
 
 ```text
-🧑 User:
-"کدام برند بیشترین فروش را دارد و مشتریان درباره محصولاتش بیشتر از چه موضوعی صحبت می‌کنند؟"
+User:
+Which products had the highest sales?
 
-🤖 Agent:
-[Splits the request into analytical sub-questions]
-[Runs SQL for sales ranking]
-[Runs RAG for customer-review evidence]
-[Validates each sub-answer]
-[Combines the results]
+Rahin:
+→ Generates / validates SQL
+→ Executes against PostgreSQL
+→ Returns the ranking with evidence
+```
 
-✅ Final answer:
-A structured comparison of sales performance and customer feedback,
-with the underlying evidence kept in the tool trace.
+### Customer Voice
+
+```text
+User:
+What are customers complaining about regarding this product?
+
+Rahin:
+→ Generates semantic query
+→ Retrieves relevant reviews through pgvector
+→ Summarizes representative evidence
+→ Returns aspect-level customer signals
+```
+
+### Combined Question
+
+```text
+User:
+Which products sell well but receive negative feedback about quality?
+
+Rahin:
+→ SQL: identifies high-sales products
+→ RAG: retrieves relevant customer reviews
+→ ABSA / aspect evidence: identifies quality-related signals
+→ Combines the evidence into one analytical answer
+```
+
+### Multi-question
+
+```text
+User:
+Which brand has the highest sales, which product drives it,
+and what do customers say about its quality?
+
+Rahin:
+→ Decomposes the request
+→ Executes sub-questions
+→ Validates each result
+→ Combines the sub-answers
+→ Produces one grounded response
+```
+
+### Visualization
+
+```text
+User:
+Show me the monthly sales trend.
+
+Rahin:
+→ SQL analytics
+→ tool_chart
+→ Frontend renders the visualization
 ```
 
 ---
 
-## 🔒 Security Architecture
+# 🔒 Security & Reliability
 
-### Database Security
-```
-┌─────────────────────────────────────────────┐
-│      PostgreSQL Database Server             │
-│                                             │
-│  🔐 Analytics Role (Read-Only)              │
-│     └─ SELECT only, read-only transactions  │
-│     └─ statement_timeout enforced           │
-│     └─ used by SQL tool & vector search     │
-│                                             │
-│  🔓 Chat Role (Write-Capable, separate DB)  │
-│     └─ SELECT/INSERT/UPDATE on chat_memory  │
-│     └─ INSERT on eval_log                   │
-│     └─ No access to analytics data          │
-│                                             │
-└─────────────────────────────────────────────┘
-```
-The application follows least privilege: it never issues `CREATE TABLE` at runtime.
+Rahin uses multiple layers of protection rather than trusting the LLM prompt alone.
 
-### Application Security
-- ✅ **AST-based SQL validation** before any LLM-generated query is executed
-- ✅ **Read-only execution + timeout + row cap** independent of the prompt
-- ✅ **Parameterized queries** for internal filters (e.g. `product_id` in vector search)
-- ✅ **CORS Protection**: Configurable origin whitelist
-- ✅ **Environment Variables**: Secrets never in code
-- ✅ **Import without side effects**: no DB connection is opened at import time; pools are lazy
+### SQL Security
 
----
+- AST-based SQL validation
+- SELECT / WITH-SELECT restrictions
+- Controlled tables
+- Real schema introspection
+- Join validation
+- Read-only database execution
+- Statement timeout
+- Hard result-row limit
+- Parameterized internal filters
 
-## ⚡ Performance Optimization
+### Agent Reliability
 
-```
-Dashboard Cache (5-min TTL)
-├─ Pre-warmed on startup
-├─ Background refresh loop
-├─ Never blocks requests
-└─ Thread-safe with locks
+- Bounded graph iterations
+- Consecutive tool-error budget
+- Validation before final response
+- Retry / correction path
+- Re-validation after correction
+- Evaluation logging
 
-Query Optimization
-├─ Deterministic tie-breakers for Top-N
-├─ Minimum sample filters (view_cnt >= 30)
-├─ Pre-aggregation of child tables before JOINs
-└─ Strategic indexing on hot columns
+### Data Integrity
 
-LLM / Token Optimization
-├─ Compact tool results, raw evidence kept out of context
-├─ Schema defined once (tool_sql only)
-├─ Non-LLM RAG summarization
-├─ Conversation compaction (last N raw turns + summary)
-└─ Exponential backoff on 429 rate limits
-
-Startup vs. Hot Path
-├─ Embedding model preloaded at startup
-└─ SQL validator refreshed from the real schema at startup
-```
+- Data cleaning before modeling
+- Automated quality checks
+- Duplicate detection
+- Missing-value checks
+- Behavioral integrity rules
+- Structured database relationships
+- Reproducible SQL-based feature/KPI generation
 
 ---
 
-## 📂 Project Structure
+# ⚡ Performance & Context Optimization
 
-```
-ai-customer-behavior-analytics-platform/
-│
-├── 🐍 Backend (Python)
-│   ├── main.py                    # Startup, per-request lifecycle, system prompt, Active Context
-│   ├── api.py                     # FastAPI endpoints & caching layer
-│   ├── memory_store.py            # PostgreSQL-backed conversation memory + eval log
-│   │
-│   └── Graph/                     # LangGraph ReAct agent implementation
-│       ├── state.py               # GraphState shared between nodes
-│       ├── nodes.py               # agent / tools / finalize / validate / safe nodes
-│       ├── graph.py               # Graph wiring & routing (loop guards, retry/correct)
-│       ├── tools.py               # Tool definitions + dispatcher (tool calling gateway)
-│       ├── sql_agent.py           # 📊 SQL execution boundary (validate → run)
-│       ├── production_validator.py# 🛡️ AST-based SQL validator
-│       ├── schema_introspector.py # Real schema / FK extraction from PostgreSQL
-│       ├── vector_retriever.py    # 🔍 RAG: e5 embedding + pgvector Top-K
-│       ├── text_summary.py        # Non-LLM compression of retrieved comments
-│       ├── chart_agent.py         # 📈 Chart tool
-│       ├── audit.py               # Answer validation & correction
-│       ├── dataset_time.py        # Dataset reference date & time contract
-│       ├── llm_client.py          # LLM calls, rate-limit retry, local embeddings
-│       └── db.py                  # Read-only pool, timeout, vector search
-│
-├── 🎨 Frontend (React)
-│   └── rahin_front_ai/
-│       ├── public/assets/
-│       ├── src/
-│       │   ├── components/
-│       │   ├── pages/
-│       │   └── main.jsx
-│       └── vite.config.js
-│
-├── ⚙️ Configuration
-│   ├── .env.example
-│   ├── requirements.txt
-│   └── package.json
-│
-└── 📚 Documentation
-    └── README.md
-```
+The project includes several optimizations designed around the practical constraints of large datasets and LLM context windows.
+
+### Data Processing
+
+- Chunked processing
+- Parquet intermediate storage
+- DuckDB for analytical ETL
+- PostgreSQL-centered feature/KPI processing
+
+### Retrieval
+
+- Vector normalization
+- HNSW indexing
+- Top-K retrieval
+- Non-LLM result compression
+- Representative comment selection
+
+### Agent / LLM
+
+- Tool-result compaction
+- Conversation summarization
+- Active-context injection only when relevant
+- Bounded iterations
+- Rate-limit retry with exponential backoff
+- Schema reuse instead of repeatedly injecting large schema descriptions
+
+### Database
+
+- Strategic indexes
+- Pre-aggregation before risky joins
+- Deterministic Top-N ordering
+- Ratio-aware aggregation rules
+- Query timeout and row limits
 
 ---
 
-## 🐛 Troubleshooting
+# 🎯 Why Rahin?
 
-### LLM Errors (429 / 413)
-- **429 RateLimitError**: the client retries with exponential backoff; daily token limits (TPD) may require waiting or switching provider/model via `AGENT_LLM_MODEL`.
-- **413 Request too large**: means the LLM context grew too much (very large tool results or history). Results are compacted and history is summarized by default; check `CHAT_MEMORY_MAX_RAW_TURNS`.
+Rahin is designed around a simple principle:
 
-### Embedding Model Fails to Load
-```bash
-# After one successful download, run offline from the local cache
-export HF_HUB_OFFLINE=1
+> **A useful business answer must be grounded in evidence.**
+
+The system therefore separates the responsibilities of each layer:
+
+```text
+Data Engineering
+      ↓
+Makes data trustworthy
+
+Database + Feature Engineering
+      ↓
+Makes behavior analyzable
+
+KPI Layer
+      ↓
+Makes analytics meaningful for business
+
+ABSA + RAG
+      ↓
+Makes customer voice searchable and interpretable
+
+Agent
+      ↓
+Makes analysis conversational
+
+Validation
+      ↓
+Checks whether the answer is grounded
+
+Dashboard
+      ↓
+Makes insights visible and actionable
 ```
-Query embeddings must come from the same model as the stored `comments_embedding` vectors (multilingual-e5-base, 768-d, `query:` prefix).
 
-### API Not Responding
-```bash
-# Check if server is running
-curl http://localhost:8000/api/health
+The result is not simply a chatbot over a database.
 
-# Verify PostgreSQL connection
-psql -U analytics_reader -d analytics_db -c "SELECT 1;"
-```
+It is an integrated **customer intelligence and business analytics system** that connects:
 
-### Chat History Lost
-```bash
-# Verify chat_memory table
-psql -U app_chat_writer -d postgres -c \
-  "SELECT COUNT(*) FROM public.chat_memory;"
-```
+**Customer Behavior + Customer Voice + Business KPIs + AI Reasoning + Visualization**
 
-### Slow Queries
-```sql
--- Monitor slow queries
-SELECT mean, calls, query FROM pg_stat_statements 
-WHERE mean > 1000 ORDER BY mean DESC;
-```
+into a single workflow.
 
 ---
 
-## 🎨 Repository Branding
+# 📚 Documentation Map
 
-The Rahin logo is already referenced from the frontend asset path:
+For deeper technical understanding, the project documentation covers:
 
-```html
-<div align="center">
-  <img src="rahin_front_ai/public/assets/logo-mark.png" width="120" alt="Rahin Logo">
-</div>
-```
-
-For GitHub, there are three different branding surfaces:
-
-1. **README logo** — the image above, stored in the repository.
-2. **Repository social preview** — set a Rahin-branded banner in **GitHub → Settings → Social preview**.
-3. **GitHub repository icon** — GitHub does not provide a normal per-repository custom icon setting. The closest equivalents are the README logo, social preview, and the profile/organization avatar.
-
-For the best result, use a clean Rahin logo on a transparent background for the README and a wider 1280×640-style branded banner for the social preview.
-
-## 📝 Contributing
-
-We welcome contributions! 🎉
-
-```bash
-# 1. Fork the repository
-# 2. Create feature branch
-git checkout -b feature/amazing-feature
-
-# 3. Make changes & test
-# 4. Commit with clear message
-git commit -m "✨ Add amazing feature"
-
-# 5. Push & open Pull Request
-git push origin feature/amazing-feature
-```
+- Dataset metadata extraction
+- Data cleaning and quality validation
+- Text preprocessing
+- ABSA model training and inference
+- Embedding generation
+- HNSW vector indexing
+- PostgreSQL schema design
+- Feature Engineering
+- KPI Generation
+- RFM segmentation
+- ML customer clustering
+- RAG retrieval
+- Text-to-SQL
+- SQL validation
+- LangGraph state and routing
+- Multi-question orchestration
+- Follow-up / Active Context
+- Answer validation and correction
+- FastAPI backend
+- React dashboard
+- Evaluation and performance testing
 
 ---
 
-## 📄 License
+# 📄 License
 
 This project is licensed under the **MIT License**.
 
@@ -792,15 +1328,14 @@ This project is licensed under the **MIT License**.
 
 <div align="center">
 
-## ⭐ If you find this helpful, please give it a star!
+<img src="rahin_front_ai/public/assets/logo-mark.png" width="70" alt="Rahin">
 
-[![GitHub stars](https://img.shields.io/github/stars/Rainsh724/ai-customer-behavior-analytics-platform?style=social)](https://github.com/Rainsh724/ai-customer-behavior-analytics-platform)
+### Rahin — Intelligent Customer & Business Analytics
 
-**Made with 💚 by Rahin Analytics Team**
+**From Data → Evidence → Intelligence → Decision**
 
-[🔝 Back to Top](#-ai-customer-behavior-analytics-platform)
+⭐ If you find the project useful, consider giving the repository a star.
 
-![Last Updated](https://img.shields.io/badge/Last%20Updated-2026-green?style=flat-square)
-![Maintained](https://img.shields.io/badge/Maintained%3F-Yes-green?style=flat-square)
+[Back to Top](#-rahin--ai-customer-behavior-analytics-platform)
 
 </div>
