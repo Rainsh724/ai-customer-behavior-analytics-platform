@@ -1,5 +1,3 @@
-# <div align="center"><img src="rahin_front_ai/public/assets/logo-mark.png" width="80" alt="Rahin Logo"></div>
-
 # 🎯 AI Customer Behavior Analytics Platform
 
 <div align="center">
@@ -33,7 +31,6 @@ A production-oriented, ReAct-based analytics platform that combines an LLM agent
 ---
 
 ## ✨ Key Features
-## 🚀 What's New
 
 This README reflects the current architecture and recent platform evolution:
 
@@ -695,7 +692,6 @@ ai-customer-behavior-analytics-platform/
 ├── 🎨 Frontend (React)
 │   └── rahin_front_ai/
 │       ├── public/assets/
-│       │   └── logo-mark.png      # Rahin Logo
 │       ├── src/
 │       │   ├── components/
 │       │   ├── pages/
