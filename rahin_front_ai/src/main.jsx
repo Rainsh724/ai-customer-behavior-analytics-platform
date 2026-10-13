@@ -278,7 +278,7 @@ function Sidebar({ page, go, open, close, onLogout }) {
           <div className="promo-wave wave-b" />
           <Sparkles />
           <strong>با راهین</strong>
-          <span>یک قدم جلوتر...</span>
+          <span>در راه رشدین...</span>
         </div>
 
       </aside>
